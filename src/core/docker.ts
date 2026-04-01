@@ -147,8 +147,10 @@ export class DockerManager extends EventEmitter {
       `${repoPath}:/workspace`,
     ];
 
-    // Claude config is copied in (not mounted) so Claude Code can refresh tokens
-    // See configureContainer() in container-runner.ts
+    // Mount Claude Code config from host so tokens refresh live
+    if (claudeConfigDir) {
+      binds.push(`${claudeConfigDir}:/home/klaude/.claude`);
+    }
 
     // Extra mounts from config
     for (const mount of extraMounts) {

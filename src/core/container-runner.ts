@@ -174,33 +174,11 @@ export class ContainerRunner extends EventEmitter {
       ]);
     }
 
-    // Copy Claude Code config into the container (not mounted, so Claude can refresh tokens)
+    // Fix permissions on mounted ~/.claude so Claude Code can read/write (refresh tokens)
     const claudeDir = this.config.getClaudeConfigDir();
     if (claudeDir) {
-      this.emit('log', 'Copying Claude Code credentials into container...');
-      await this.docker.exec(this.containerId!, ['mkdir', '-p', '/home/klaude/.claude']);
-      // Copy all credential files
-      const credFiles = ['.credentials.json', '.claude.json', 'settings.json'];
-      for (const file of credFiles) {
-        const hostPath = path.join(claudeDir, file);
-        if (fs.existsSync(hostPath)) {
-          const content = fs.readFileSync(hostPath, 'utf-8');
-          await this.docker.writeFile(this.containerId!, `/home/klaude/.claude/${file}`, content);
-        }
-      }
-      // Copy backups dir if it exists
-      const backupsDir = path.join(claudeDir, 'backups');
-      if (fs.existsSync(backupsDir)) {
-        await this.docker.exec(this.containerId!, ['mkdir', '-p', '/home/klaude/.claude/backups']);
-        const backupFiles = fs.readdirSync(backupsDir).slice(-3); // last 3 backups
-        for (const file of backupFiles) {
-          const content = fs.readFileSync(path.join(backupsDir, file), 'utf-8');
-          await this.docker.writeFile(this.containerId!, `/home/klaude/.claude/backups/${file}`, content);
-        }
-      }
-      // Restore .claude.json from backup if needed
       await this.docker.exec(this.containerId!, [
-        'bash', '-c', `if [ ! -f ~/.claude.json ] && ls ~/.claude/backups/.claude.json.backup.* 1>/dev/null 2>&1; then cp "$(ls -t ~/.claude/backups/.claude.json.backup.* | head -1)" ~/.claude.json; fi`,
+        'sudo', 'chown', '-R', 'klaude:klaude', '/home/klaude/.claude',
       ]);
     }
 
