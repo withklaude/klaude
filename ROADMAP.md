@@ -17,6 +17,8 @@
 - [x] Docker image pulled from registry, auto-rebuild after 24h
 - [x] Concurrent project support with build locking
 - [x] CI/CD: npm publish + Docker image on ghcr.io
+- [x] Auto-update CLI on startup when new version available
+- [x] Plan appends roadmap update instruction to tasks when spec has checklists
 
 ## v0.2 — Usability
 
@@ -55,7 +57,7 @@
 - [ ] Test suite
 - [ ] Full documentation
 - [ ] Plugin system
-- [ ] Published on npm
+- [x] Published on npm
 
 ## Principles
 
