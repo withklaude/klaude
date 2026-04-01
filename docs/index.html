@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>klaude — Orchestrate Claude Code tasks</title>
+  <meta name="description" content="Plan by day, run overnight. CLI to orchestrate Claude Code tasks in Docker containers.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="https://raw.githubusercontent.com/withklaude/klaude/main/assets/logo.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple-dark.css">
+  <style>
+    :root {
+      --theme-color: #c084fc;
+      --sidebar-name-color: #c084fc;
+      --sidebar-nav-link-color--active: #c084fc;
+      --link-color: #c084fc;
+      --blockquote-border-color: #c084fc;
+      --code-theme-background: #1a1a2e;
+    }
+    .app-name-link img {
+      width: 64px;
+      margin-bottom: 8px;
+    }
+    .markdown-section code {
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    window.$docsify = {
+      name: '<img src="https://raw.githubusercontent.com/withklaude/klaude/main/assets/logo.png" alt="klaude"><br>klaude',
+      repo: 'https://github.com/withklaude/klaude',
+      loadSidebar: true,
+      subMaxLevel: 3,
+      auto2top: true,
+      search: {
+        placeholder: 'Search docs...',
+        noData: 'No results.',
+      },
+      copyCode: {
+        buttonText: 'Copy',
+        successText: 'Copied!',
+      },
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-yaml.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-markdown.min.js"></script>
+</body>
+</html>
