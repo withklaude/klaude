@@ -263,7 +263,13 @@ export class DockerManager extends EventEmitter {
   async readFile(containerId: string, filePath: string): Promise<string | null> {
     try {
       const { stream } = await this.exec(containerId, ['cat', filePath]);
-      return await streamToString(stream);
+      const demuxed = demuxExecStream(stream);
+      return await new Promise<string>((resolve, reject) => {
+        const parts: string[] = [];
+        demuxed.on('data', ({ data }: { type: 'stdout' | 'stderr'; data: string }) => parts.push(data));
+        demuxed.on('end', () => resolve(parts.join('')));
+        demuxed.on('error', reject);
+      });
     } catch {
       return null;
     }
@@ -282,6 +288,39 @@ function parseMemory(mem: string): number {
     case 'g': return num * 1024 * 1024 * 1024;
     default: return num;
   }
+}
+
+/**
+ * Demultiplexes a Docker exec stream into separate stdout/stderr events.
+ *
+ * Docker multiplexing protocol: each frame has an 8-byte header where
+ * byte 0 is the stream type (1=stdout, 2=stderr) and bytes 4-7 are the
+ * payload size as a big-endian uint32. Handles partial frames correctly.
+ */
+export function demuxExecStream(stream: NodeJS.ReadableStream): EventEmitter {
+  const emitter = new EventEmitter();
+  let buf = Buffer.alloc(0);
+
+  stream.on('data', (chunk: Buffer) => {
+    buf = Buffer.concat([buf, chunk]);
+
+    while (buf.length >= 8) {
+      const frameSize = buf.readUInt32BE(4);
+      if (buf.length < 8 + frameSize) break;
+
+      const streamType = buf[0];
+      const payload = buf.slice(8, 8 + frameSize);
+      buf = buf.slice(8 + frameSize);
+
+      const type: 'stdout' | 'stderr' = streamType === 2 ? 'stderr' : 'stdout';
+      emitter.emit('data', { type, data: payload.toString('utf-8') });
+    }
+  });
+
+  stream.on('end', () => emitter.emit('end'));
+  stream.on('error', (err: Error) => emitter.emit('error', err));
+
+  return emitter;
 }
 
 function streamToString(stream: NodeJS.ReadableStream): Promise<string> {

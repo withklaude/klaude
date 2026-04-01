@@ -10,6 +10,8 @@ import { planCommand } from './commands/plan.js';
 import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
 import { stopCommand } from './commands/stop.js';
+import { cleanCommand } from './commands/clean.js';
+import { logsCommand } from './commands/logs.js';
 
 // ─── Auto-update ────────────────────────────────────────────────
 async function checkForUpdate(): Promise<void> {
@@ -136,7 +138,8 @@ taskCmd
 program
   .command('plan [spec-file]')
   .description('Analyze a spec file and create tasks with priorities')
-  .action(planCommand);
+  .option('-y, --yes', 'Skip confirmation and write tasks immediately')
+  .action((specFile, options) => planCommand(specFile, options));
 
 // ─── run ─────────────────────────────────────────────────────────
 program
@@ -161,5 +164,25 @@ program
   .description('Stop running container(s)')
   .option('--all', 'Stop all containers')
   .action(stopCommand);
+
+// ─── clean ───────────────────────────────────────────────────────
+program
+  .command('clean')
+  .description('Remove old runs and orphan containers')
+  .option('--runs-only', 'Only clean run directories')
+  .option('--containers-only', 'Only clean containers')
+  .option('--keep <number>', 'Number of recent runs to keep', '5')
+  .option('--all', 'Remove all runs')
+  .option('-y, --yes', 'Skip confirmation')
+  .action(cleanCommand);
+
+// ─── logs ────────────────────────────────────────────────────────
+program
+  .command('logs <task-name>')
+  .description('Show logs from the last run for a task')
+  .option('--run <run-id>', 'Show logs from a specific run')
+  .option('-f, --follow', 'Follow log output in real-time')
+  .option('-n, --lines <number>', 'Show last N lines')
+  .action(logsCommand);
 
 program.parse();
