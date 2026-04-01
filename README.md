@@ -226,6 +226,15 @@ If the pull fails (offline, private network), klaude builds the image locally as
 - **Concurrent projects** — run klaude in multiple directories simultaneously
 - **Report** — always generated, even on failure
 
+## Safe by design
+
+Claude Code runs inside an **isolated Docker container**, not on your machine. It only has access to what you explicitly provide:
+
+- Your project mounted at `/workspace` — nothing else from your filesystem
+- Only the credentials you configure (env vars, git token)
+- A dedicated git identity — not your personal credentials
+- No access to SSH keys, browser sessions, cloud configs, or other projects
+
 ## Configuration
 
 ### Global (`~/.klaude/config.yaml`)

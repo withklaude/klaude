@@ -51,6 +51,18 @@ klaude doesn't write code. It prepares the environment and lets Claude handle th
 | **Healthcheck** | Verifies container is ready before running |
 | **Auto-update** | CLI updates itself on startup |
 
+## Safe by design
+
+Claude Code runs inside an **isolated Docker container** — not on your machine. It only has access to what you explicitly give it:
+
+- **Your project** is mounted at `/workspace` — nothing else from your filesystem
+- **Credentials** are injected as env vars — only the ones you configure
+- **Git** uses a dedicated identity — not your personal credentials
+- **Network** is available but the container can't access your local services
+- No access to your SSH keys, browser sessions, cloud configs, or other projects
+
+If Claude makes a mistake, it's contained. Your machine is untouched.
+
 ## Get started
 
 1. [Install klaude](installation.md)
