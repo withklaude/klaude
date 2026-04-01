@@ -87,61 +87,31 @@ export async function planCommand(specFile?: string, options: { yes?: boolean } 
     }
   } catch { /* ignore */ }
 
-  // Read source code structure for context
-  let codeContext = '';
-  try {
-    const srcDir = path.join(projectRoot, 'src');
-    if (fs.existsSync(srcDir)) {
-      const collectFiles = (dir: string, prefix = ''): string[] => {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        const result: string[] = [];
-        for (const entry of entries) {
-          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-          if (entry.isDirectory()) {
-            result.push(...collectFiles(path.join(dir, entry.name), rel));
-          } else {
-            result.push(rel);
-          }
-        }
-        return result;
-      };
-      const srcFiles = collectFiles(srcDir);
-      codeContext = `\n\nSource files in src/:\n${srcFiles.join('\n')}`;
+  console.log(chalk.dim('  Analyzing codebase and generating tasks...\n'));
 
-      // Include key file contents (index, types, commands) — truncated
-      const keyFiles = srcFiles.filter(f =>
-        f.endsWith('index.ts') || f.includes('types/') || f.startsWith('commands/')
-      ).slice(0, 10);
-      for (const f of keyFiles) {
-        const fullPath = path.join(srcDir, f);
-        const content = fs.readFileSync(fullPath, 'utf-8');
-        const truncated = content.slice(0, 2000);
-        codeContext += `\n\n--- src/${f} ---\n${truncated}${content.length > 2000 ? '\n... (truncated)' : ''}`;
-      }
-    }
-  } catch { /* ignore */ }
-
-  console.log(chalk.dim('  Analyzing spec and generating tasks...\n'));
-
-  // Call the plan agent
+  // Call the plan agent with full permissions so it can read the codebase
   const agentPath = getTemplatePath('plan-agent.md');
-  const args = ['-p',
+  const args = ['-p', '--dangerously-skip-permissions',
+    `Project root: ${projectRoot}\n\n` +
     `Here is the specification/description of work to be done:\n\n` +
     `---\n${specContent}\n---\n\n` +
-    `Project context:${context}${existingTasks}${codeContext}\n\n` +
-    `IMPORTANT: Read the existing code carefully. Do NOT generate tasks for features that are already implemented. Only generate tasks for what is genuinely missing.\n\n` +
-    `Decompose this into sequential tasks. Output ONLY a JSON array as specified.`,
+    `Project context:${context}${existingTasks}\n\n` +
+    `IMPORTANT: Before generating tasks, thoroughly read ALL source files in the project. ` +
+    `Explore every file in src/, read the full content of each one, check package.json, config files, and templates. ` +
+    `You must understand what already exists before deciding what tasks to generate.\n\n` +
+    `Then:\n` +
+    `1. Do NOT generate tasks for features already implemented.\n` +
+    `2. For each task, reference specific files, functions, types, and patterns you found in the code.\n` +
+    `3. Each task prompt must include exact file paths, existing code patterns to follow, and detailed implementation steps.\n` +
+    `4. Be exhaustive — each task should have enough context that Claude Code can implement it independently.\n\n` +
+    `Output ONLY a JSON array as specified.`,
   ];
-
-  if (fs.existsSync(agentPath)) {
-    args.push('--system-prompt-file', agentPath);
-  }
 
   let rawOutput: string;
   try {
     rawOutput = execFileSync('claude', args, {
       encoding: 'utf-8',
-      timeout: 300_000,
+      timeout: 600_000,
       env: { ...process.env },
     });
   } catch (err) {
