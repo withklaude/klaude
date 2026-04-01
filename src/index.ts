@@ -27,12 +27,18 @@ async function checkForUpdate(): Promise<void> {
     }).trim();
 
     if (latest && latest !== currentVersion) {
-      console.log(`\x1b[33mUpdating klaudio ${currentVersion} → ${latest}...\x1b[0m`);
-      execSync('npm install -g klaude-tool@latest', {
-        stdio: 'inherit',
-        timeout: 60000,
-      });
-      console.log(`\x1b[32m✓ Updated to ${latest}\x1b[0m\n`);
+      // Only update if npm version is newer (not older)
+      const [aMaj, aMin, aPat] = currentVersion.split('.').map(Number);
+      const [bMaj, bMin, bPat] = latest.split('.').map(Number);
+      const npmIsNewer = bMaj > aMaj || (bMaj === aMaj && bMin > aMin) || (bMaj === aMaj && bMin === aMin && bPat > aPat);
+      if (npmIsNewer) {
+        console.log(`\x1b[33mUpdating klaude ${currentVersion} → ${latest}...\x1b[0m`);
+        execSync('npm install -g klaude-tool@latest', {
+          stdio: 'inherit',
+          timeout: 60000,
+        });
+        console.log(`\x1b[32m✓ Updated to ${latest}\x1b[0m\n`);
+      }
     }
   } catch {
     // Silently ignore — offline, no npm, etc.
