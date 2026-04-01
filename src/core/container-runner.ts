@@ -1,0 +1,409 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { EventEmitter } from 'node:events';
+import { DockerManager } from './docker.js';
+import { ConfigManager } from './config-manager.js';
+import { TaskLoader } from './task-loader.js';
+import { RateLimitDetector } from './rate-limiter.js';
+import { NetworkMonitor } from './network-monitor.js';
+import { StateManager } from './state-manager.js';
+import type { TaskState, RunState, RunOptions } from '../types/index.js';
+
+export class ContainerRunner extends EventEmitter {
+  private docker: DockerManager;
+  private config: ConfigManager;
+  private stateManager: StateManager;
+  private runState: RunState;
+  private networkMonitor: NetworkMonitor;
+  private containerId?: string;
+
+  constructor(private options: RunOptions) {
+    super();
+    this.docker = new DockerManager();
+    this.config = new ConfigManager();
+    this.stateManager = new StateManager(this.config.getProjectDir()!);
+    this.networkMonitor = new NetworkMonitor();
+
+    this.runState = {
+      id: new Date().toISOString().replace(/[:.]/g, '-'),
+      started_at: new Date().toISOString(),
+      tasks: [],
+      options,
+    };
+  }
+
+  /** Full run: start container → configure → run tasks → stop */
+  async run(taskNames?: string[]): Promise<RunState> {
+    await this.preflight();
+
+    // Load and validate tasks
+    const loader = new TaskLoader(this.config.getTasksDir()!);
+    let tasks = loader.loadAll();
+
+    if (taskNames && taskNames.length > 0) {
+      tasks = tasks.filter(t => taskNames.includes(t.name));
+      if (tasks.length === 0) {
+        throw new Error(`No matching tasks found for: ${taskNames.join(', ')}`);
+      }
+    }
+
+    for (const task of tasks) {
+      const errors = loader.validate(task);
+      if (errors.length > 0) {
+        throw new Error(`Task "${task.name}" has errors:\n  ${errors.join('\n  ')}`);
+      }
+    }
+
+    this.runState.tasks = tasks.map(t => ({
+      task: t,
+      status: 'pending' as const,
+      rate_limits_hit: 0,
+      network_errors: 0,
+    }));
+
+    if (this.options.dryRun) {
+      this.emit('dry-run', this.runState);
+      return this.runState;
+    }
+
+    fs.mkdirSync(this.getRunDir(), { recursive: true });
+
+    this.networkMonitor.start();
+    this.setupNetworkListeners();
+
+    await this.ensureImage();
+
+    try {
+      // Start one container for the whole run
+      await this.startContainer();
+
+      // Configure git and Claude inside the container
+      await this.configureContainer();
+
+      // Run each task: skip completed/skipped, retry failed, run pending
+      for (const taskState of this.runState.tasks) {
+        if (!this.stateManager.shouldRun(taskState.task.name)) {
+          const s = this.stateManager.get(taskState.task.name);
+          taskState.status = s.status === 'completed' ? 'completed' : 'failed';
+          this.emit('task-skip', { task: taskState.task.name, reason: s.status });
+          continue;
+        }
+        await this.executeTask(taskState);
+      }
+    } finally {
+      await this.stopContainer();
+      this.networkMonitor.stop();
+      this.runState.completed_at = new Date().toISOString();
+      await this.writeReport();
+    }
+
+    return this.runState;
+  }
+
+  // ─── Container (one per run) ────────────────────────────────
+
+  private async startContainer(): Promise<void> {
+    const envVars: Record<string, string> = {
+      ...this.config.get<Record<string, string>>('env'),
+    };
+    const apiKey = this.config.resolveApiKey();
+    if (apiKey) envVars.ANTHROPIC_API_KEY = apiKey;
+
+    this.containerId = await this.docker.createContainer({
+      name: `run-${this.runState.id}`,
+      repoPath: this.config.getProjectRoot()!,
+      config: this.config.getMergedConfig(),
+      envVars,
+      extraMounts: this.config.get<string[]>('mounts') || [],
+      claudeConfigDir: this.config.getClaudeConfigDir(),
+    });
+
+    this.emit('log', `Container started (${this.containerId.slice(0, 12)})`);
+  }
+
+  private async stopContainer(): Promise<void> {
+    if (!this.containerId) return;
+    try {
+      await this.docker.stopContainer(this.containerId);
+      await this.docker.removeContainer(this.containerId);
+    } catch { /* ignore */ }
+    this.containerId = undefined;
+  }
+
+  /** Configure the container environment (git, Claude config) */
+  private async configureContainer(): Promise<void> {
+    // Git user/email so Claude can commit
+    const gitUser = this.config.get<string>('git.user') || 'klaude';
+    const gitEmail = this.config.get<string>('git.email') || 'klaude@automated';
+
+    await this.docker.exec(this.containerId!, [
+      'git', 'config', '--global', 'user.name', gitUser,
+    ]);
+    await this.docker.exec(this.containerId!, [
+      'git', 'config', '--global', 'user.email', gitEmail,
+    ]);
+
+    // Git token for push
+    const gitToken = this.config.get<string>('git.token');
+    if (gitToken) {
+      await this.docker.exec(this.containerId!, [
+        'bash', '-c', `echo "https://x-access-token:${gitToken}@github.com" > ~/.git-credentials && git config --global credential.helper store`,
+      ]);
+    }
+
+    // Restore Claude config from backup if needed (mounted .claude dir may not have .claude.json)
+    await this.docker.exec(this.containerId!, [
+      'bash', '-c', `if [ ! -f ~/.claude.json ] && ls ~/.claude/backups/.claude.json.backup.* 1>/dev/null 2>&1; then cp "$(ls -t ~/.claude/backups/.claude.json.backup.* | head -1)" ~/.claude.json; fi`,
+    ]);
+
+    this.emit('log', `Container configured (git: ${gitUser} <${gitEmail}>)`);
+  }
+
+  // ─── Task Execution ─────────────────────────────────────────
+
+  private async executeTask(taskState: TaskState): Promise<void> {
+    const { task } = taskState;
+    const detector = new RateLimitDetector();
+
+    taskState.status = 'running';
+    taskState.started_at = new Date().toISOString();
+    taskState.container_id = this.containerId;
+    this.stateManager.markRunning(task.name, this.runState.id);
+    this.emit('task-start', task.name);
+
+    try {
+      // Build prompt: task + available env vars
+      let prompt = task.prompt;
+      const env = this.config.get<Record<string, string>>('env');
+      if (env && Object.keys(env).length > 0) {
+        const names = Object.keys(env).join(', ');
+        prompt += `\n\nEnvironment variables available: ${names}`;
+      }
+
+      // Write prompt into the container
+      await this.docker.exec(this.containerId!, [
+        'bash', '-c', `cat > /tmp/task-prompt.md << 'KLAUDEPROMPTEOF'\n${prompt}\nKLAUDEPROMPTEOF`,
+      ]);
+
+      // Launch claude-wrapper — Claude Code does everything
+      const { stream } = await this.docker.exec(this.containerId!, [
+        '/usr/local/bin/claude-wrapper', '/tmp/task-prompt.md',
+        this.options.overnight ? '999' : '10',
+      ]);
+
+      // Stream output
+      await new Promise<void>((resolve, reject) => {
+        let output = '';
+
+        stream.on('data', (chunk: Buffer) => {
+          const text = chunk.toString('utf-8');
+          output += text;
+
+          for (const line of text.split('\n').filter((l: string) => l.trim())) {
+            const event = detector.parseLogLine(line);
+            this.emit('task-output', { task: task.name, ...event });
+
+            if (event.type === 'rate_limit') {
+              taskState.status = 'waiting';
+              taskState.rate_limits_hit++;
+              this.emit('rate-limit', { task: task.name, count: taskState.rate_limits_hit });
+            } else if (event.type === 'network_error') {
+              taskState.status = 'waiting';
+              taskState.network_errors++;
+              this.emit('network-error', { task: task.name, count: taskState.network_errors });
+            } else if (taskState.status === 'waiting') {
+              taskState.status = 'running';
+            }
+          }
+        });
+
+        stream.on('end', () => {
+          const logPath = path.join(this.getRunDir(), `${task.name}.log`);
+          fs.writeFileSync(logPath, output, 'utf-8');
+          resolve();
+        });
+
+        stream.on('error', reject);
+      });
+
+      // Check final status
+      const statusJson = await this.docker.readFile(this.containerId!, '/tmp/klaude-status.json');
+      let finalResolved = false;
+      if (statusJson) {
+        const containerStatus = detector.parseContainerStatus(statusJson);
+        if (containerStatus?.status === 'completed') {
+          taskState.status = 'completed';
+          finalResolved = true;
+        } else if (containerStatus?.status === 'failed') {
+          taskState.status = 'failed';
+          taskState.error = containerStatus.message;
+          finalResolved = true;
+        }
+      }
+
+      if (!finalResolved && taskState.status !== 'completed' && taskState.status !== 'failed') {
+        taskState.status = 'completed';
+      }
+
+    } catch (err) {
+      taskState.status = 'failed';
+      taskState.error = (err as Error).message;
+      this.emit('task-error', { task: task.name, error: taskState.error });
+    } finally {
+      taskState.completed_at = new Date().toISOString();
+
+      // Persist task state
+      if (taskState.status === 'completed') {
+        this.stateManager.markCompleted(task.name);
+      } else if (taskState.status === 'failed') {
+        this.stateManager.markFailed(task.name, taskState.error);
+      }
+
+      const stats = detector.getStats();
+      this.emit('task-done', {
+        task: task.name,
+        status: taskState.status,
+        rateLimits: stats.rateLimitsHit,
+        networkErrors: stats.networkErrors,
+        waitTime: stats.totalWaitTimeMs,
+      });
+    }
+  }
+
+  // ─── Preflight ──────────────────────────────────────────────
+
+  private async preflight(): Promise<void> {
+    if (!await this.docker.isAvailable()) {
+      throw new Error('Docker is not available. Make sure Docker Desktop is running.');
+    }
+    if (!this.config.getProjectRoot()) {
+      throw new Error('Not inside a klaude project. Run "klaude init" first.');
+    }
+    if (!this.config.getTasksDir()) {
+      throw new Error('Tasks directory not found.');
+    }
+    const apiKey = this.config.resolveApiKey();
+    const claudeDir = this.config.getClaudeConfigDir();
+    if (!apiKey && !claudeDir) {
+      throw new Error(
+        'No Anthropic API key found and no Claude Code config directory.\n' +
+        'Set via: klaude config set anthropic.api_key <key> --global\n' +
+        'Or ensure Claude Code is configured on this machine.',
+      );
+    }
+  }
+
+  private async ensureImage(): Promise<void> {
+    const imageName = this.config.get<string>('docker.image') || 'klaude-ubuntu';
+    const registryImage = this.config.get<string>('docker.registry_image') || 'ghcr.io/withklaude/klaude';
+    const ageHours = await this.docker.imageAgeHours(imageName);
+    const maxAge = this.config.get<number>('docker.rebuild_after_hours') ?? 24;
+
+    if (ageHours !== null && ageHours < maxAge) {
+      this.emit('log', `Docker image "${imageName}" found (${Math.round(ageHours)}h old).`);
+      return;
+    }
+
+    // Lock to prevent concurrent rebuilds across projects
+    const lockFile = path.join(os.tmpdir(), `klaude-build-${imageName}.lock`);
+    if (fs.existsSync(lockFile)) {
+      this.emit('log', `Another process is building "${imageName}", waiting...`);
+      while (fs.existsSync(lockFile)) {
+        await new Promise(r => setTimeout(r, 3000));
+      }
+      this.emit('log', `Image "${imageName}" ready.`);
+      return;
+    }
+
+    try {
+      fs.writeFileSync(lockFile, String(process.pid), 'utf-8');
+
+      // Try pulling from registry first
+      this.emit('log', `Pulling "${registryImage}:latest"...`);
+      this.docker.on('pull-log', (line: string) => this.emit('build-log', line));
+      const pulled = await this.docker.pullImage(`${registryImage}:latest`);
+
+      if (pulled) {
+        // Tag the pulled image with the local name
+        const image = this.docker.getImage(`${registryImage}:latest`);
+        await image.tag({ repo: imageName, tag: 'latest' });
+        this.emit('log', `Image pulled and tagged as "${imageName}".`);
+      } else {
+        // Fallback: build locally
+        this.emit('log', `Pull failed, building "${imageName}" locally...`);
+        this.docker.on('build-log', (line: string) => this.emit('build-log', line));
+        await this.docker.buildImage(imageName);
+        this.emit('log', `Docker image "${imageName}" built successfully.`);
+      }
+    } finally {
+      try { fs.unlinkSync(lockFile); } catch { /* ignore */ }
+    }
+  }
+
+  // ─── Network ────────────────────────────────────────────────
+
+  private setupNetworkListeners(): void {
+    this.networkMonitor.on('offline', () => {
+      this.emit('log', '⚠ Network offline. Tasks will resume when connectivity returns.');
+    });
+    this.networkMonitor.on('online', ({ downtimeSeconds }: { downtimeSeconds: number }) => {
+      this.emit('log', `✓ Network restored after ${downtimeSeconds}s downtime.`);
+    });
+    this.networkMonitor.on('waiting', ({ nextCheckIn }: { nextCheckIn: number }) => {
+      this.emit('log', `Waiting for network... next check in ${nextCheckIn}s`);
+    });
+  }
+
+  // ─── Reporting ──────────────────────────────────────────────
+
+  private getRunDir(): string {
+    return path.join(this.config.getProjectDir()!, 'runs', this.runState.id);
+  }
+
+  private async writeReport(): Promise<void> {
+    const runDir = this.getRunDir();
+    const completed = this.runState.tasks.filter(t => t.status === 'completed').length;
+    const failed = this.runState.tasks.filter(t => t.status === 'failed').length;
+    const total = this.runState.tasks.length;
+    const totalRateLimits = this.runState.tasks.reduce((s, t) => s + t.rate_limits_hit, 0);
+    const totalNetworkErrors = this.runState.tasks.reduce((s, t) => s + t.network_errors, 0);
+
+    const startTime = new Date(this.runState.started_at);
+    const endTime = this.runState.completed_at ? new Date(this.runState.completed_at) : new Date();
+    const durationMin = Math.round((endTime.getTime() - startTime.getTime()) / 60_000);
+
+    const report = `# Klaude Run Report
+
+- **Run ID:** ${this.runState.id}
+- **Started:** ${this.runState.started_at}
+- **Completed:** ${this.runState.completed_at || 'in progress'}
+- **Duration:** ${durationMin} minutes
+- **Mode:** ${this.options.overnight ? 'overnight' : 'standard'}
+
+## Results
+
+- **Total tasks:** ${total}
+- **Completed:** ${completed} ✓
+- **Failed:** ${failed} ✗
+- **Rate limits hit:** ${totalRateLimits}
+- **Network errors:** ${totalNetworkErrors}
+
+## Task Details
+
+${this.runState.tasks.map(t => `### ${t.task.name}
+- Status: ${t.status}
+- Rate limits: ${t.rate_limits_hit}
+- Network errors: ${t.network_errors}
+${t.error ? `- Error: ${t.error}` : ''}
+`).join('\n')}
+`;
+
+    fs.writeFileSync(path.join(runDir, 'report.md'), report, 'utf-8');
+    fs.writeFileSync(
+      path.join(runDir, 'state.json'),
+      JSON.stringify(this.runState, null, 2),
+      'utf-8',
+    );
+  }
+}
