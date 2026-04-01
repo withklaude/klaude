@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#1a1a2e"/>
+
+  <!-- K letterform — bold, centered -->
+  <g transform="translate(138, 120)">
+    <!-- Vertical bar -->
+    <rect x="0" y="0" width="44" height="272" rx="12" fill="#c084fc"/>
+    <!-- Upper arm -->
+    <rect x="30" y="100" width="170" height="44" rx="12" fill="#c084fc" transform="rotate(-42, 30, 122)"/>
+    <!-- Lower arm -->
+    <rect x="30" y="128" width="170" height="44" rx="12" fill="#e8a838" transform="rotate(42, 30, 150)"/>
+  </g>
+
+  <!-- Moon accent — small, top right -->
+  <circle cx="400" cy="112" r="28" fill="#e8a838"/>
+  <circle cx="416" cy="100" r="24" fill="#1a1a2e"/>
+</svg>
