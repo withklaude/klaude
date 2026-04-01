@@ -1,5 +1,11 @@
 // ─── Global Config ───────────────────────────────────────────────
 
+export interface WebhookConfig {
+  url: string;
+  events?: ('run_complete' | 'task_complete' | 'task_failed')[];
+  headers?: Record<string, string>;
+}
+
 export interface KlaudeGlobalConfig {
   anthropic?: {
     api_key?: string;
@@ -19,6 +25,7 @@ export interface KlaudeGlobalConfig {
   };
   mounts?: string[]; // extra files/dirs to mount in container
   env?: Record<string, string>; // extra env vars injected into the container
+  webhooks?: WebhookConfig[];
 }
 
 // ─── Project Config (.klaude/config.yaml) ────────────────────────
@@ -31,6 +38,7 @@ export interface KlaudeProjectConfig extends KlaudeGlobalConfig {
 
 export interface TaskSettings {
   max_tokens?: number;
+  timeout?: number; // minutes
 }
 
 export interface TaskDefinition {
@@ -53,6 +61,7 @@ export interface TaskState {
   rate_limits_hit: number;
   network_errors: number;
   error?: string;
+  timed_out?: boolean;
 }
 
 // ─── Run ─────────────────────────────────────────────────────────
@@ -61,6 +70,8 @@ export interface RunOptions {
   overnight: boolean;
   dryRun: boolean;
   resume: boolean;
+  watch: boolean;
+  timeout?: number;
 }
 
 export interface RunState {

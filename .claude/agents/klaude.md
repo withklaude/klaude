@@ -37,6 +37,8 @@ klaude task skip [name]        # Mark task as skipped (won't run)
 ### Planning from specs
 ```bash
 klaude plan <spec-file>        # Decompose a spec into sequential tasks
+klaude plan                    # Interactive (file or description)
+klaude plan spec.md --yes      # Skip confirmation
 ```
 
 ### Running tasks
@@ -52,8 +54,12 @@ klaude run --resume            # Resume an interrupted run
 ```bash
 klaude status                  # Show running containers and latest report
 klaude status --follow         # Stream live logs
+klaude logs <task>             # Show logs from the last run
+klaude logs <task> --follow    # Tail logs in real-time
 klaude stop                    # Stop running container
 klaude stop --all              # Stop all klaude containers
+klaude clean                   # Remove old runs and orphan containers
+klaude clean --keep 10         # Keep last 10 runs
 ```
 
 ### Configuration

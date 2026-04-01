@@ -108,6 +108,18 @@ export class StateManager {
     this.save();
   }
 
+  /** Reset any tasks stuck in 'running' state back to 'pending' (interrupted run) */
+  recoverInterrupted(): string[] {
+    const recovered: string[] = [];
+    for (const [name, state] of Object.entries(this.state)) {
+      if (state.status === 'running') {
+        this.update(name, { status: 'pending', error: 'Interrupted — will retry' });
+        recovered.push(name);
+      }
+    }
+    return recovered;
+  }
+
   /** Should this task be executed in a run? */
   shouldRun(taskName: string): boolean {
     const s = this.get(taskName);

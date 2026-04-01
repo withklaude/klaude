@@ -139,6 +139,8 @@ program
   .command('plan [spec-file]')
   .description('Analyze a spec file and create tasks with priorities')
   .option('-y, --yes', 'Skip confirmation and write tasks immediately')
+  .option('--append', 'Add tasks to existing plan without overwriting')
+  .option('--from-issues', 'Generate tasks from open GitHub issues')
   .action((specFile, options) => planCommand(specFile, options));
 
 // ─── run ─────────────────────────────────────────────────────────
@@ -149,6 +151,9 @@ program
   .option('--overnight', 'Overnight mode: run all tasks, never exit, drain all tokens')
   .option('--dry-run', 'Show what would happen without executing')
   .option('--resume', 'Resume an interrupted run')
+  .option('--watch', 'Restart automatically when tasks change')
+  .option('--no-notify', 'Disable completion notifications')
+  .option('--timeout <minutes>', 'Maximum minutes per task', parseInt)
   .action(runCommand);
 
 // ─── status ──────────────────────────────────────────────────────
@@ -183,6 +188,7 @@ program
   .option('--run <run-id>', 'Show logs from a specific run')
   .option('-f, --follow', 'Follow log output in real-time')
   .option('-n, --lines <number>', 'Show last N lines')
+  .option('--diff', 'Show git diff instead of log output')
   .action(logsCommand);
 
 program.parse();

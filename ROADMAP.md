@@ -23,10 +23,10 @@
 ## v0.2 — Usability
 
 - [x] `klaude plan` shows preview and asks confirmation before creating
-- [ ] `klaude run --watch` restarts automatically if tasks change
+- [x] `klaude run --watch` restarts automatically if tasks change
 - [x] `klaude clean` removes old runs and orphan containers
 - [x] `klaude logs <task>` shows logs from the last run
-- [ ] Notification on run completion (terminal bell, desktop notification)
+- [x] Notification on run completion (terminal bell, desktop notification)
 - [x] Colored output to distinguish stderr/stdout from Claude
 - [x] `klaude plan` reads project code to avoid duplicating existing features
 - [x] Graceful shutdown: Ctrl+C stops the container
@@ -35,21 +35,21 @@
 ## v0.3 — Reliability
 
 - [ ] Full resume: pick up from the exact task where it stopped
-- [ ] Task timeout (prevent infinite runs)
-- [ ] Save git diff per task (what Claude changed)
-- [ ] Healthcheck: verify container is responsive before running tasks
+- [x] Task timeout (prevent infinite runs)
+- [x] Save git diff per task (what Claude changed)
+- [x] Healthcheck: verify container is responsive before running tasks
 
 ## v0.4 — Smart planning
 
 - [x] `klaude plan` reads project code for better context
 - [ ] Explicit task dependencies (task B waits for task A)
-- [ ] `klaude plan --from-issues` generates tasks from GitHub issues
-- [ ] `klaude plan --append` adds tasks to an existing plan
+- [x] `klaude plan --from-issues` generates tasks from GitHub issues
+- [x] `klaude plan --append` adds tasks to an existing plan
 - [ ] Time estimates based on historical data
 
 ## v0.5 — Integration
 
-- [ ] Webhooks on run completion (Slack, Discord, email)
+- [x] Webhooks on run completion (Slack, Discord, email)
 - [ ] Podman support as Docker alternative
 
 ## v1.0

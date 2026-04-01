@@ -18,7 +18,7 @@ interface PlannedTask {
   prompt: string;
 }
 
-export async function planCommand(specFile?: string, options: { yes?: boolean } = {}): Promise<void> {
+export async function planCommand(specFile?: string, options: { yes?: boolean; append?: boolean; fromIssues?: boolean } = {}): Promise<void> {
   const config = new ConfigManager();
   const tasksDir = config.getTasksDir();
   if (!tasksDir) {
@@ -29,7 +29,51 @@ export async function planCommand(specFile?: string, options: { yes?: boolean } 
   // Read the spec
   let specContent: string;
 
-  if (specFile) {
+  if (options.fromIssues) {
+    // Detect GitHub repo from git remote
+    const projectRoot = config.getProjectRoot()!;
+    let repoSlug: string;
+    try {
+      const remote = execFileSync('git', ['remote', 'get-url', 'origin'], {
+        encoding: 'utf-8',
+        cwd: projectRoot,
+      }).trim();
+      // Parse: https://github.com/owner/repo.git or git@github.com:owner/repo.git
+      const match = remote.match(/github\.com[:\/]([^\/]+\/[^\.]+)/);
+      if (!match) throw new Error('Not a GitHub repository');
+      repoSlug = match[1];
+    } catch (err) {
+      console.error(chalk.red('Could not detect GitHub repository from git remote.'));
+      process.exit(1);
+    }
+
+    // Fetch open issues using gh CLI
+    console.log(chalk.dim(`  Fetching issues from ${repoSlug!}...\n`));
+    try {
+      const issuesJson = execFileSync('gh', [
+        'issue', 'list', '--repo', repoSlug!,
+        '--state', 'open', '--json', 'number,title,body,labels',
+        '--limit', '20',
+      ], { encoding: 'utf-8', timeout: 30000 });
+
+      const issues = JSON.parse(issuesJson);
+      if (issues.length === 0) {
+        console.log(chalk.yellow('No open issues found.'));
+        return;
+      }
+
+      // Format issues as spec content
+      specContent = issues.map((i: any) =>
+        `## Issue #${i.number}: ${i.title}\n${i.body || 'No description'}\nLabels: ${i.labels?.map((l: any) => l.name).join(', ') || 'none'}`
+      ).join('\n\n');
+
+      console.log(chalk.bold(`  📋 Found ${issues.length} open issue(s)\n`));
+    } catch (err) {
+      console.error(chalk.red('Failed to fetch issues. Is `gh` CLI installed and authenticated?'));
+      console.error(chalk.dim((err as Error).message));
+      process.exit(1);
+    }
+  } else if (specFile) {
     const specPath = path.isAbsolute(specFile) ? specFile : path.resolve(specFile);
     if (!fs.existsSync(specPath)) {
       console.error(chalk.red(`File not found: ${specFile}`));
@@ -84,6 +128,15 @@ export async function planCommand(specFile?: string, options: { yes?: boolean } 
     const existing = fs.readdirSync(tasksDir).filter(f => !f.startsWith('.'));
     if (existing.length > 0) {
       existingTasks = `\nExisting tasks (avoid name conflicts): ${existing.join(', ')}`;
+      if (options.append) {
+        // Include existing task summaries so the agent knows what's already planned
+        existingTasks += '\n\nExisting task summaries (DO NOT duplicate these):';
+        for (const file of existing) {
+          const content = fs.readFileSync(path.join(tasksDir, file), 'utf-8');
+          const firstLines = content.split('\n').slice(0, 5).join('\n');
+          existingTasks += `\n- ${file}: ${firstLines}`;
+        }
+      }
     }
   } catch { /* ignore */ }
 
@@ -104,6 +157,8 @@ export async function planCommand(specFile?: string, options: { yes?: boolean } 
     `2. For each task, reference specific files, functions, types, and patterns you found in the code.\n` +
     `3. Each task prompt must include exact file paths, existing code patterns to follow, and detailed implementation steps.\n` +
     `4. Be exhaustive — each task should have enough context that Claude Code can implement it independently.\n\n` +
+    (options.append ? `Only generate NEW tasks that don't overlap with existing ones. This is an append operation.\n\n` : '') +
+    (options.fromIssues ? `Each task should reference the GitHub issue number it addresses. Include 'Closes #N' in the task prompt so Claude Code will reference the issue.\n\n` : '') +
     `Output ONLY a JSON array as specified.`,
   ];
 
@@ -197,8 +252,12 @@ export async function planCommand(specFile?: string, options: { yes?: boolean } 
   // Write task files
   console.log('');
   for (const task of tasks) {
-    const content = `---\nname: ${task.name}\npriority: ${task.priority}\n---\n\n${task.prompt.trim()}\n`;
     const filePath = path.join(tasksDir, `${task.name}.md`);
+    if (fs.existsSync(filePath) && options.append) {
+      console.log(`  ${chalk.yellow('⚠')} ${task.name} — skipped (already exists)`);
+      continue;
+    }
+    const content = `---\nname: ${task.name}\npriority: ${task.priority}\n---\n\n${task.prompt.trim()}\n`;
     fs.writeFileSync(filePath, content, 'utf-8');
 
     const firstLine = task.prompt.split('\n').find(l => l.trim()) || task.name;

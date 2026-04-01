@@ -7,6 +7,7 @@ interface LogsOptions {
   run?: string;
   follow?: boolean;
   lines?: string;
+  diff?: boolean;
 }
 
 export async function logsCommand(taskName: string, opts: LogsOptions): Promise<void> {
@@ -47,10 +48,13 @@ export async function logsCommand(taskName: string, opts: LogsOptions): Promise<
     runDirName = runDirs[0];
   }
 
-  const logFile = path.join(runsDir, runDirName, `${taskName}.log`);
+  const logFile = opts.diff
+    ? path.join(runsDir, runDirName, `${taskName}.diff`)
+    : path.join(runsDir, runDirName, `${taskName}.log`);
 
   if (!fs.existsSync(logFile)) {
-    console.error(chalk.red(`No logs found for task "${taskName}"`));
+    const kind = opts.diff ? 'diff' : 'logs';
+    console.error(chalk.red(`No ${kind} found for task "${taskName}"`));
     process.exit(1);
   }
 
