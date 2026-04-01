@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { input, select } from '@inquirer/prompts';
+import { confirm, input, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ConfigManager } from '../core/config-manager.js';
 
@@ -18,7 +18,7 @@ interface PlannedTask {
   prompt: string;
 }
 
-export async function planCommand(specFile?: string): Promise<void> {
+export async function planCommand(specFile?: string, options: { yes?: boolean } = {}): Promise<void> {
   const config = new ConfigManager();
   const tasksDir = config.getTasksDir();
   if (!tasksDir) {
@@ -87,6 +87,40 @@ export async function planCommand(specFile?: string): Promise<void> {
     }
   } catch { /* ignore */ }
 
+  // Read source code structure for context
+  let codeContext = '';
+  try {
+    const srcDir = path.join(projectRoot, 'src');
+    if (fs.existsSync(srcDir)) {
+      const collectFiles = (dir: string, prefix = ''): string[] => {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        const result: string[] = [];
+        for (const entry of entries) {
+          const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) {
+            result.push(...collectFiles(path.join(dir, entry.name), rel));
+          } else {
+            result.push(rel);
+          }
+        }
+        return result;
+      };
+      const srcFiles = collectFiles(srcDir);
+      codeContext = `\n\nSource files in src/:\n${srcFiles.join('\n')}`;
+
+      // Include key file contents (index, types, commands) — truncated
+      const keyFiles = srcFiles.filter(f =>
+        f.endsWith('index.ts') || f.includes('types/') || f.startsWith('commands/')
+      ).slice(0, 10);
+      for (const f of keyFiles) {
+        const fullPath = path.join(srcDir, f);
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const truncated = content.slice(0, 2000);
+        codeContext += `\n\n--- src/${f} ---\n${truncated}${content.length > 2000 ? '\n... (truncated)' : ''}`;
+      }
+    }
+  } catch { /* ignore */ }
+
   console.log(chalk.dim('  Analyzing spec and generating tasks...\n'));
 
   // Call the plan agent
@@ -94,7 +128,8 @@ export async function planCommand(specFile?: string): Promise<void> {
   const args = ['-p',
     `Here is the specification/description of work to be done:\n\n` +
     `---\n${specContent}\n---\n\n` +
-    `Project context:${context}${existingTasks}\n\n` +
+    `Project context:${context}${existingTasks}${codeContext}\n\n` +
+    `IMPORTANT: Read the existing code carefully. Do NOT generate tasks for features that are already implemented. Only generate tasks for what is genuinely missing.\n\n` +
     `Decompose this into sequential tasks. Output ONLY a JSON array as specified.`,
   ];
 
@@ -131,9 +166,38 @@ export async function planCommand(specFile?: string): Promise<void> {
 
   tasks.sort((a, b) => a.priority - b.priority);
 
-  // Show plan and create tasks
-  console.log(chalk.bold(`  📋 ${tasks.length} tasks created:\n`));
+  // If the spec is a roadmap, tell each task to update it
+  const hasRoadmapItems = specContent.includes('- [ ]') || specContent.includes('- [x]');
+  const roadmapFile = specFile && hasRoadmapItems ? specFile : null;
+  if (roadmapFile) {
+    for (const task of tasks) {
+      task.prompt += `\n\nAfter completing this task, update ${roadmapFile}: mark the corresponding item as done (change \`- [ ]\` to \`- [x]\`). Only mark items that are fully implemented.`;
+    }
+  }
 
+  // Preview tasks
+  console.log(chalk.bold(`  📋 Planned ${tasks.length} task${tasks.length === 1 ? '' : 's'}:\n`));
+  for (const task of tasks) {
+    const firstLine = task.prompt.split('\n').find(l => l.trim()) || task.name;
+    console.log(`  ${chalk.cyan(`P${task.priority}`)} ${chalk.bold(task.name)}`);
+    console.log(`     ${chalk.dim(firstLine.replace(/^#+\s*/, '').slice(0, 70))}`);
+  }
+  console.log('');
+
+  // Confirm before writing
+  if (!options.yes) {
+    const proceed = await confirm({
+      message: `Create these ${tasks.length} task${tasks.length === 1 ? '' : 's'}?`,
+      default: true,
+    });
+    if (!proceed) {
+      console.log(chalk.yellow('  Plan discarded. No tasks were created.'));
+      return;
+    }
+  }
+
+  // Write task files
+  console.log('');
   for (const task of tasks) {
     const content = `---\nname: ${task.name}\npriority: ${task.priority}\n---\n\n${task.prompt.trim()}\n`;
     const filePath = path.join(tasksDir, `${task.name}.md`);

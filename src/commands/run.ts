@@ -51,8 +51,13 @@ export async function runCommand(taskName: string | undefined, opts: RunCommandO
       console.log(chalk.yellow(`\n⏳ [${task}] Rate limit hit — waiting for reset...\n`));
     } else if (type === 'network_error') {
       console.log(chalk.red(`\n🌐 [${task}] Network error — waiting...\n`));
+    } else if (type === 'stderr') {
+      const trimmed = raw.trim();
+      if (trimmed.length > 0) {
+        console.log(chalk.red('│ ') + chalk.redBright(trimmed));
+      }
     } else {
-      // Stream Claude's output directly to console
+      // stdout — stream Claude's output directly to console
       const trimmed = raw.trim();
       if (trimmed.length > 0) {
         console.log(chalk.dim(trimmed));
@@ -89,16 +94,18 @@ export async function runCommand(taskName: string | undefined, opts: RunCommandO
     console.log(chalk.dim('  Press Ctrl+C to stop gracefully.\n'));
   }
 
-  // Handle graceful shutdown
+  // Handle graceful shutdown — stop the container on Ctrl+C
   let stopping = false;
-  process.on('SIGINT', () => {
+  process.on('SIGINT', async () => {
     if (stopping) {
       console.log(chalk.red('\nForce stopping...'));
       process.exit(1);
     }
     stopping = true;
     spinner.stop();
-    console.log(chalk.yellow('\n⏹ Stopping gracefully... (press Ctrl+C again to force)'));
+    console.log(chalk.yellow('\n⏹ Stopping container...'));
+    await runner.shutdown();
+    process.exit(130);
   });
 
   try {

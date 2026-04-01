@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { EventEmitter } from 'node:events';
-import { DockerManager } from './docker.js';
+import { DockerManager, demuxExecStream } from './docker.js';
 import { ConfigManager } from './config-manager.js';
 import { TaskLoader } from './task-loader.js';
 import { RateLimitDetector } from './rate-limiter.js';
@@ -131,6 +131,12 @@ export class ContainerRunner extends EventEmitter {
     this.containerId = undefined;
   }
 
+  /** Public shutdown — stops container and network monitor */
+  async shutdown(): Promise<void> {
+    await this.stopContainer();
+    this.networkMonitor.stop();
+  }
+
   /** Configure the container environment (git, Claude config) */
   private async configureContainer(): Promise<void> {
     // Git user/email so Claude can commit
@@ -173,13 +179,14 @@ export class ContainerRunner extends EventEmitter {
     this.emit('task-start', task.name);
 
     try {
-      // Build prompt: task + available env vars
+      // Build prompt: task + env vars + roadmap instruction
       let prompt = task.prompt;
       const env = this.config.get<Record<string, string>>('env');
       if (env && Object.keys(env).length > 0) {
         const names = Object.keys(env).join(', ');
         prompt += `\n\nEnvironment variables available: ${names}`;
       }
+
 
       // Write prompt into the container
       await this.docker.exec(this.containerId!, [
@@ -192,23 +199,27 @@ export class ContainerRunner extends EventEmitter {
         this.options.overnight ? '999' : '10',
       ]);
 
-      // Stream output
+      // Stream output (demultiplexed into stdout/stderr)
+      const demuxed = demuxExecStream(stream);
       await new Promise<void>((resolve, reject) => {
         let output = '';
 
-        stream.on('data', (chunk: Buffer) => {
-          const text = chunk.toString('utf-8');
-          output += text;
+        demuxed.on('data', ({ type: streamType, data }: { type: 'stdout' | 'stderr'; data: string }) => {
+          output += data;
 
-          for (const line of text.split('\n').filter((l: string) => l.trim())) {
-            const event = detector.parseLogLine(line);
-            this.emit('task-output', { task: task.name, ...event });
+          for (const line of data.split('\n').filter((l: string) => l.trim())) {
+            const parsed = detector.parseLogLine(line);
+            // For rate_limit/network_error keep the detector type; otherwise use the stream type
+            const emitType = (parsed.type === 'rate_limit' || parsed.type === 'network_error')
+              ? parsed.type
+              : streamType;
+            this.emit('task-output', { task: task.name, type: emitType, raw: parsed.raw });
 
-            if (event.type === 'rate_limit') {
+            if (parsed.type === 'rate_limit') {
               taskState.status = 'waiting';
               taskState.rate_limits_hit++;
               this.emit('rate-limit', { task: task.name, count: taskState.rate_limits_hit });
-            } else if (event.type === 'network_error') {
+            } else if (parsed.type === 'network_error') {
               taskState.status = 'waiting';
               taskState.network_errors++;
               this.emit('network-error', { task: task.name, count: taskState.network_errors });
@@ -218,13 +229,13 @@ export class ContainerRunner extends EventEmitter {
           }
         });
 
-        stream.on('end', () => {
+        demuxed.on('end', () => {
           const logPath = path.join(this.getRunDir(), `${task.name}.log`);
           fs.writeFileSync(logPath, output, 'utf-8');
           resolve();
         });
 
-        stream.on('error', reject);
+        demuxed.on('error', reject);
       });
 
       // Check final status

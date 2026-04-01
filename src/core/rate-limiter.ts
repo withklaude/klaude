@@ -2,13 +2,12 @@ import type { RateLimitEvent, ContainerStatus } from '../types/index.js';
 
 /** Patterns that indicate a rate limit */
 const RATE_LIMIT_PATTERNS = [
-  /rate.?limit/i,
-  /429/,
+  /rate.?limit.*(exceeded|hit|error|retry)/i,
+  /HTTP 429/,
   /too many requests/i,
-  /token limit/i,
   /resource.+exhausted/i,
   /overloaded/i,
-  /retry.?after/i,
+  /retry.?after.*\d+/i,
 ];
 
 /** Patterns that indicate a network error */

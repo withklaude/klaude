@@ -52,7 +52,7 @@ check_network() {
 
 is_rate_limit() {
   local output="$1"
-  echo "$output" | grep -qiE "(rate.?limit|429|too many requests|token limit|resource.+exhausted|overloaded)" 2>/dev/null
+  echo "$output" | grep -qiE "(rate.?limit.*(exceeded|hit|error|retry)|HTTP 429|too many requests|resource.+exhausted|overloaded)" 2>/dev/null
 }
 
 is_network_error() {
