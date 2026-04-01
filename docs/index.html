@@ -8,6 +8,8 @@
   <link rel="icon" href="https://raw.githubusercontent.com/withklaude/klaude/main/assets/logo.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple-dark.css">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
     :root {
       --theme-color: #c084fc;
       --sidebar-name-color: #e8a838;
@@ -17,104 +19,277 @@
       --link-color--hover: #e8a838;
       --blockquote-border-color: #e8a838;
       --code-theme-background: #12121e;
-      --code-inline-background: #1e1e30;
+      --code-inline-background: #1a1a2e;
       --code-inline-color: #e8a838;
-      --base-background-color: #0d0d1a;
-      --sidebar-background: #0a0a14;
-      --sidebar-border-color: #1e1e30;
-      --heading-color: #f0f0f0;
-      --base-color: #c8c8d8;
-      --table-row-even-background: #12121e;
+      --base-background-color: #0c0c18;
+      --sidebar-background: #080810;
+      --sidebar-border-color: #1a1a2e;
+      --heading-color: #f5f5f7;
+      --base-color: #b8b8cc;
+      --base-font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --code-font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      --table-row-even-background: #10101c;
       --notice-tip-border-color: #c084fc;
       --notice-important-border-color: #e8a838;
+      --sidebar-width: 260px;
+      --content-max-width: 860px;
     }
+
+    body {
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    /* Sidebar */
     .app-name-link img {
-      width: 72px;
-      margin-bottom: 8px;
+      width: 56px;
+      margin-bottom: 4px;
+      filter: drop-shadow(0 0 12px rgba(192, 132, 252, 0.3));
     }
     .app-name-link {
       text-transform: none !important;
       font-weight: 700;
-      font-size: 1.2em;
-      color: #e8a838 !important;
+      font-size: 1.15em;
+      color: #f5f5f7 !important;
+      letter-spacing: 0.02em;
     }
-    .markdown-section code {
-      border-radius: 4px;
+    .sidebar-nav {
+      padding-top: 0.5em;
     }
-    .markdown-section pre {
-      border-radius: 8px;
-      border: 1px solid #1e1e30;
+    .sidebar-nav > ul > li > p {
+      color: #666680;
+      font-size: 0.75em;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 1.2em 0 0.3em;
     }
-    .markdown-section table {
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    .markdown-section h1 {
-      border-bottom: 2px solid #c084fc;
-      padding-bottom: 0.3em;
-    }
-    .markdown-section h2 {
-      color: #c084fc;
+    .sidebar-nav li a {
+      font-size: 0.9em;
+      padding: 0.2em 0;
+      transition: color 0.15s;
     }
     .sidebar-nav li a:hover {
       color: #e8a838 !important;
     }
+
+    /* Content */
+    .markdown-section {
+      padding: 2em 2.5em;
+    }
+    .markdown-section code {
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+    .markdown-section pre {
+      border-radius: 10px;
+      border: 1px solid #1e1e30;
+      padding: 1.2em;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    }
+    .markdown-section pre code {
+      font-size: 0.85em;
+      line-height: 1.6;
+    }
+    .markdown-section table {
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #1e1e30;
+    }
+    .markdown-section table th {
+      background: #14141f;
+      color: #c084fc;
+      font-weight: 600;
+      font-size: 0.85em;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .markdown-section table td {
+      border-color: #1a1a2e;
+    }
+    .markdown-section h1 {
+      border-bottom: 2px solid #c084fc;
+      padding-bottom: 0.3em;
+      font-weight: 700;
+    }
+    .markdown-section h2 {
+      color: #c084fc;
+      font-weight: 600;
+      margin-top: 2em;
+    }
+    .markdown-section h3 {
+      color: #e8a838;
+      font-weight: 600;
+    }
+    .markdown-section blockquote {
+      background: #10101c;
+      border-radius: 8px;
+      padding: 0.8em 1.2em;
+      border-left: 4px solid #e8a838;
+    }
+    .markdown-section strong {
+      color: #f0f0f5;
+    }
+    .markdown-section li {
+      margin: 0.3em 0;
+    }
+
     /* Install banner */
     .install-banner {
-      background: linear-gradient(135deg, #1a1a2e 0%, #0d0d1a 100%);
+      background: linear-gradient(135deg, #1a1a2e 0%, #12121e 50%, #1a1a2e 100%);
       border: 1px solid #c084fc;
-      border-radius: 12px;
-      padding: 1.2em 1.5em;
-      margin: 1.5em 0;
+      border-radius: 14px;
+      padding: 1.5em 2em;
+      margin: 2em 0;
       text-align: center;
+      box-shadow: 0 0 30px rgba(192, 132, 252, 0.08);
     }
     .install-banner .install-row {
       display: inline-flex;
       align-items: center;
-      gap: 0.5em;
     }
-    .install-banner .copy-btn {
-      background: #c084fc;
-      color: #0d0d1a;
-      border: none;
-      border-radius: 6px;
-      padding: 0.4em 0.7em;
+    .install-banner .install-cmd {
       cursor: pointer;
-      font-size: 0.85em;
-      font-weight: 600;
       transition: all 0.2s;
+      user-select: all;
     }
-    .install-banner .copy-btn:hover {
-      background: #e8a838;
-    }
-    .install-banner .copy-btn.copied {
-      background: #22c55e;
+    .install-banner .install-cmd:hover {
+      border-color: #c084fc;
+      box-shadow: 0 0 12px rgba(192, 132, 252, 0.15);
     }
     .install-banner code {
-      font-size: 1.1em;
-      padding: 0.4em 0.8em;
-      background: #12121e !important;
-      border-radius: 6px;
+      font-size: 1.05em;
+      padding: 0.5em 1em;
+      background: #0c0c18 !important;
+      border: 1px solid #1e1e30;
+      border-radius: 8px;
+      color: #f0f0f5;
     }
     .install-banner .links {
-      margin-top: 0.8em;
+      margin-top: 1em;
       display: flex;
-      gap: 1em;
+      gap: 0.8em;
       justify-content: center;
       flex-wrap: wrap;
     }
     .install-banner .links a {
-      color: #c084fc;
+      color: #b8b8cc;
       text-decoration: none;
-      padding: 0.3em 0.8em;
-      border: 1px solid #c084fc;
-      border-radius: 6px;
-      font-size: 0.85em;
+      padding: 0.35em 0.9em;
+      border: 1px solid #2a2a40;
+      border-radius: 8px;
+      font-size: 0.82em;
+      font-weight: 500;
       transition: all 0.2s;
     }
     .install-banner .links a:hover {
+      border-color: #c084fc;
+      color: #c084fc;
+      background: rgba(192, 132, 252, 0.08);
+      transform: translateY(-1px);
+    }
+
+    /* Feature cards */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1em;
+      margin: 1.5em 0;
+    }
+    .feature-card {
+      background: #10101c;
+      border: 1px solid #1e1e30;
+      border-radius: 10px;
+      padding: 1.1em 1.2em;
+      transition: all 0.2s;
+    }
+    .feature-card:hover {
+      border-color: #c084fc;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(192, 132, 252, 0.1);
+    }
+    .feature-card .title {
+      color: #e8a838;
+      font-weight: 600;
+      font-size: 0.95em;
+      margin-bottom: 0.3em;
+    }
+    .feature-card .desc {
+      color: #8888a0;
+      font-size: 0.85em;
+      line-height: 1.5;
+    }
+
+    /* Safety section */
+    .safety-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.8em;
+      margin: 1em 0;
+    }
+    .safety-item {
+      background: #10101c;
+      border: 1px solid #1e1e30;
+      border-left: 3px solid #22c55e;
+      border-radius: 8px;
+      padding: 0.8em 1em;
+      font-size: 0.88em;
+      color: #b8b8cc;
+    }
+    .safety-item strong {
+      color: #22c55e;
+    }
+
+    /* Steps */
+    .steps {
+      counter-reset: step;
+      list-style: none;
+      padding-left: 0;
+    }
+    .steps li {
+      counter-increment: step;
+      padding-left: 2.5em;
+      position: relative;
+      margin-bottom: 0.8em;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      width: 1.8em;
+      height: 1.8em;
       background: #c084fc;
       color: #0d0d1a;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.8em;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0c0c18; }
+    ::-webkit-scrollbar-thumb { background: #2a2a40; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #c084fc; }
+
+    /* Cover page feel for h1 on home */
+    .markdown-section > h1:first-child {
+      font-size: 2.2em;
+      text-align: center;
+      border: none;
+      margin-bottom: 0;
+    }
+    .markdown-section > blockquote:first-of-type {
+      text-align: center;
+      border: none;
+      background: none;
+      font-size: 1.1em;
+      color: #8888a0;
+    }
+    .markdown-section > blockquote:first-of-type p {
+      margin: 0;
     }
   </style>
 </head>
