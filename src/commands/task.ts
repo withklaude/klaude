@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { input, select, confirm, editor } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ConfigManager } from '../core/config-manager.js';
@@ -30,19 +30,39 @@ function getAgentPromptPath(): string {
 }
 
 /** Call Claude Code CLI with the task agent system prompt and full codebase access */
-function askAgent(userMessage: string): string {
+async function askAgent(userMessage: string): Promise<string> {
   const agentPath = getAgentPromptPath();
   const args = ['-p', '--dangerously-skip-permissions', userMessage];
 
-  // Use the agent system prompt if available
   if (fs.existsSync(agentPath)) {
     args.push('--system-prompt-file', agentPath);
   }
 
-  return execFileSync('claude', args, {
-    encoding: 'utf-8',
-    timeout: 300_000,
-    env: { ...process.env },
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn('claude', args, {
+      env: { ...process.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf-8');
+      stdout += text;
+      process.stderr.write(chalk.dim(text));
+    });
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      process.stderr.write(chalk.dim(chunk.toString('utf-8')));
+    });
+
+    child.on('close', (code) => {
+      console.log('');
+      if (code === 0) resolve(stdout);
+      else reject(new Error(`claude exited with code ${code}`));
+    });
+
+    child.on('error', reject);
   });
 }
 
@@ -109,7 +129,7 @@ export async function taskNewCommand(): Promise<void> {
   console.log(chalk.dim('\n  Generating task with Claude...\n'));
 
   try {
-    const result = askAgent(
+    const result = await askAgent(
       `The user wants to create a task. Here is their description:\n\n${description}${context}\n\n` +
       `Before generating the task, read the project source files to understand the codebase — existing patterns, file structure, conventions. ` +
       `Reference specific files, functions, and patterns in the task prompt so Claude Code knows exactly what to do.\n\n` +
@@ -210,7 +230,7 @@ export async function taskGenerateCommand(description?: string): Promise<void> {
   console.log(chalk.bold('\n🤖 Generating task with Claude...\n'));
 
   try {
-    const result = askAgent(
+    const result = await askAgent(
       `The user wants to create a task. Here is their description:\n\n${description}\n\n` +
       `Before generating the task, read the project source files to understand the codebase — existing patterns, file structure, conventions. ` +
       `Reference specific files, functions, and patterns in the task prompt so Claude Code knows exactly what to do.\n\n` +
@@ -255,7 +275,7 @@ async function refineLoop(filePath: string): Promise<void> {
     console.log(chalk.dim('  Asking Claude...'));
 
     try {
-      const result = askAgent(
+      const result = await askAgent(
         `Here is the current task file:\n\n${currentContent}\n\n` +
         `The user wants this change: ${modification}\n\n` +
         `Generate ONLY the complete updated file content. Keep the YAML frontmatter format. Apply the requested changes.`,

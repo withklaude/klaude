@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { confirm, input, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { ConfigManager } from '../core/config-manager.js';
@@ -109,10 +109,38 @@ export async function planCommand(specFile?: string, options: { yes?: boolean } 
 
   let rawOutput: string;
   try {
-    rawOutput = execFileSync('claude', args, {
-      encoding: 'utf-8',
-      timeout: 600_000,
-      env: { ...process.env },
+    rawOutput = await new Promise<string>((resolve, reject) => {
+      const child = spawn('claude', args, {
+        env: { ...process.env },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf-8');
+        stdout += text;
+        // Stream output so user sees progress
+        process.stderr.write(chalk.dim(text));
+      });
+
+      child.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString('utf-8');
+        stderr += text;
+        process.stderr.write(chalk.dim(text));
+      });
+
+      child.on('close', (code) => {
+        console.log(''); // newline after streaming
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          reject(new Error(stderr || `claude exited with code ${code}`));
+        }
+      });
+
+      child.on('error', reject);
     });
   } catch (err) {
     console.error(chalk.red('Failed to generate plan.'));
