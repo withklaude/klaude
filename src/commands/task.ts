@@ -29,10 +29,10 @@ function getAgentPromptPath(): string {
   );
 }
 
-/** Call Claude Code CLI with the task agent system prompt */
+/** Call Claude Code CLI with the task agent system prompt and full codebase access */
 function askAgent(userMessage: string): string {
   const agentPath = getAgentPromptPath();
-  const args = ['-p', userMessage];
+  const args = ['-p', '--dangerously-skip-permissions', userMessage];
 
   // Use the agent system prompt if available
   if (fs.existsSync(agentPath)) {
@@ -41,7 +41,7 @@ function askAgent(userMessage: string): string {
 
   return execFileSync('claude', args, {
     encoding: 'utf-8',
-    timeout: 180_000,
+    timeout: 300_000,
     env: { ...process.env },
   });
 }
@@ -111,6 +111,8 @@ export async function taskNewCommand(): Promise<void> {
   try {
     const result = askAgent(
       `The user wants to create a task. Here is their description:\n\n${description}${context}\n\n` +
+      `Before generating the task, read the project source files to understand the codebase — existing patterns, file structure, conventions. ` +
+      `Reference specific files, functions, and patterns in the task prompt so Claude Code knows exactly what to do.\n\n` +
       `Generate the task file. Output ONLY the raw file content (markdown with YAML frontmatter), nothing else.`,
     );
 
@@ -210,6 +212,8 @@ export async function taskGenerateCommand(description?: string): Promise<void> {
   try {
     const result = askAgent(
       `The user wants to create a task. Here is their description:\n\n${description}\n\n` +
+      `Before generating the task, read the project source files to understand the codebase — existing patterns, file structure, conventions. ` +
+      `Reference specific files, functions, and patterns in the task prompt so Claude Code knows exactly what to do.\n\n` +
       `Generate the task file. Output ONLY the raw file content (markdown with YAML frontmatter), nothing else.`,
     );
 
