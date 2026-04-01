@@ -44,6 +44,7 @@ export interface TaskSettings {
 export interface TaskDefinition {
   name: string;
   priority?: number;
+  depends_on?: string[]; // task names that must complete before this one runs
   resources?: string[];
   settings?: TaskSettings;
   prompt: string; // the prompt for Claude Code

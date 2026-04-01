@@ -1,6 +1,7 @@
 ---
 name: task-name
 priority: 1
+depends_on: []
 ---
 
 # Task Title

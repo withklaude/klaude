@@ -418,6 +418,16 @@ export async function taskValidateCommand(): Promise<void> {
     }
   }
 
+  // Validate dependencies across all tasks
+  const depErrors = loader.validateDependencies(tasks);
+  if (depErrors.length > 0) {
+    console.log(chalk.bold('  Dependencies:'));
+    for (const err of depErrors) {
+      console.log(`    ${chalk.red('→')} ${err}`);
+    }
+    hasErrors = true;
+  }
+
   console.log('');
   if (hasErrors) process.exit(1);
 }

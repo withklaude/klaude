@@ -75,7 +75,10 @@ Each task must be self-contained. Claude Code running task 3 doesn't know what t
 Output a JSON array of task objects. Each object has:
 - `name`: slug (lowercase, hyphens, no spaces)
 - `priority`: number (1 = first to run)
+- `depends_on`: array of task names this task depends on (optional, e.g. `["setup-schema"]`)
 - `prompt`: the full prompt text for Claude Code (markdown string)
+
+Use `depends_on` when a task truly cannot run before another (e.g. API endpoints depend on schema). Don't add unnecessary dependencies — priority ordering already handles most sequencing.
 
 Output **ONLY** the JSON array. No explanation, no code fences wrapping it.
 

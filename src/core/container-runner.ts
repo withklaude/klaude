@@ -55,6 +55,13 @@ export class ContainerRunner extends EventEmitter {
       }
     }
 
+    // Validate and sort by dependencies
+    const depErrors = loader.validateDependencies(tasks);
+    if (depErrors.length > 0) {
+      throw new Error(`Dependency errors:\n  ${depErrors.join('\n  ')}`);
+    }
+    tasks = loader.sortByDependencies(tasks);
+
     this.runState.tasks = tasks.map(t => ({
       task: t,
       status: 'pending' as const,
@@ -97,12 +104,26 @@ export class ContainerRunner extends EventEmitter {
         }
       }
 
-      // Run each task: skip completed/skipped, retry failed, run pending
+      // Run each task: skip completed/skipped, check deps, retry failed, run pending
       for (const taskState of this.runState.tasks) {
         if (!this.stateManager.shouldRun(taskState.task.name)) {
           const s = this.stateManager.get(taskState.task.name);
           taskState.status = s.status === 'completed' ? 'completed' : 'failed';
           this.emit('task-skip', { task: taskState.task.name, reason: s.status });
+          continue;
+        }
+
+        // Check dependencies are all completed
+        const deps = taskState.task.depends_on || [];
+        const failedDep = deps.find(d => {
+          const depState = this.stateManager.get(d);
+          return depState.status !== 'completed';
+        });
+        if (failedDep) {
+          taskState.status = 'failed';
+          taskState.error = `Dependency "${failedDep}" not completed`;
+          this.stateManager.markFailed(taskState.task.name, taskState.error);
+          this.emit('task-skip', { task: taskState.task.name, reason: `dependency "${failedDep}" not completed` });
           continue;
         }
         await this.executeTask(taskState);

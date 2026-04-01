@@ -137,6 +137,8 @@ Additionally a task can be manually set to `skipped`.
 ---
 name: task-slug-name
 priority: 1
+depends_on:             # optional — task names that must complete first
+  - setup-schema
 ---
 
 Direct instructions for Claude Code. This is the prompt.

@@ -34,7 +34,7 @@
 
 ## v0.3 — Reliability
 
-- [ ] Full resume: pick up from the exact task where it stopped
+- [x] Full resume: pick up from the exact task where it stopped
 - [x] Task timeout (prevent infinite runs)
 - [x] Save git diff per task (what Claude changed)
 - [x] Healthcheck: verify container is responsive before running tasks
@@ -42,7 +42,7 @@
 ## v0.4 — Smart planning
 
 - [x] `klaude plan` reads project code for better context
-- [ ] Explicit task dependencies (task B waits for task A)
+- [x] Explicit task dependencies (task B waits for task A)
 - [x] `klaude plan --from-issues` generates tasks from GitHub issues
 - [x] `klaude plan --append` adds tasks to an existing plan
 - [ ] Time estimates based on historical data

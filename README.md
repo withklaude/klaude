@@ -159,6 +159,8 @@ Tasks are Markdown files with YAML frontmatter in `.klaude/tasks/`:
 ---
 name: add-dark-mode
 priority: 1
+depends_on:
+  - setup-theme-system
 ---
 
 Implement dark mode in the application.

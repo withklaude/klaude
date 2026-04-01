@@ -95,6 +95,7 @@ export class TaskLoader {
     return {
       name: (config.name as string) || name,
       priority: config.priority as number | undefined,
+      depends_on: config.depends_on as string[] | undefined,
       resources,
       settings: config.settings as TaskDefinition['settings'],
       prompt,
@@ -110,6 +111,7 @@ export class TaskLoader {
     return {
       name,
       priority: data.priority,
+      depends_on: data.depends_on,
       resources: data.resources || [],
       settings: data.settings,
       prompt: prompt.trim(),
@@ -129,6 +131,7 @@ export class TaskLoader {
     return {
       name,
       priority: data.priority,
+      depends_on: data.depends_on,
       resources: data.resources || [],
       settings: data.settings,
       prompt: data.prompt,
@@ -148,6 +151,7 @@ export class TaskLoader {
     return {
       name,
       priority: data.priority,
+      depends_on: data.depends_on,
       resources: data.resources || [],
       settings: data.settings,
       prompt: data.prompt,
@@ -186,5 +190,77 @@ export class TaskLoader {
     }
 
     return errors;
+  }
+
+  /** Validate dependencies across all tasks, returning errors */
+  validateDependencies(tasks: TaskDefinition[]): string[] {
+    const errors: string[] = [];
+    const names = new Set(tasks.map(t => t.name));
+
+    for (const task of tasks) {
+      if (!task.depends_on) continue;
+      for (const dep of task.depends_on) {
+        if (!names.has(dep)) {
+          errors.push(`Task "${task.name}" depends on "${dep}" which does not exist`);
+        }
+        if (dep === task.name) {
+          errors.push(`Task "${task.name}" depends on itself`);
+        }
+      }
+    }
+
+    // Detect cycles
+    const visited = new Set<string>();
+    const inStack = new Set<string>();
+    const depMap = new Map(tasks.map(t => [t.name, t.depends_on || []]));
+
+    const hasCycle = (name: string): boolean => {
+      if (inStack.has(name)) return true;
+      if (visited.has(name)) return false;
+      visited.add(name);
+      inStack.add(name);
+      for (const dep of depMap.get(name) || []) {
+        if (hasCycle(dep)) {
+          errors.push(`Dependency cycle detected involving "${name}" → "${dep}"`);
+          return true;
+        }
+      }
+      inStack.delete(name);
+      return false;
+    };
+
+    for (const task of tasks) {
+      hasCycle(task.name);
+    }
+
+    return errors;
+  }
+
+  /** Sort tasks respecting dependencies (topological sort), falls back to priority */
+  sortByDependencies(tasks: TaskDefinition[]): TaskDefinition[] {
+    const hasDeps = tasks.some(t => t.depends_on && t.depends_on.length > 0);
+    if (!hasDeps) return tasks; // already sorted by priority
+
+    const taskMap = new Map(tasks.map(t => [t.name, t]));
+    const sorted: TaskDefinition[] = [];
+    const visited = new Set<string>();
+
+    const visit = (name: string) => {
+      if (visited.has(name)) return;
+      visited.add(name);
+      const task = taskMap.get(name);
+      if (!task) return;
+      for (const dep of task.depends_on || []) {
+        visit(dep);
+      }
+      sorted.push(task);
+    };
+
+    // Visit in priority order so tasks without deps keep their priority ordering
+    for (const task of tasks) {
+      visit(task.name);
+    }
+
+    return sorted;
   }
 }

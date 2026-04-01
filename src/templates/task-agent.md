@@ -61,12 +61,14 @@ GOOD: "Other routes follow this pattern: router exported from file, registered i
 ---
 name: <slug-name>
 priority: <number, 1 = highest>
+depends_on: [<other-task-names>]  # optional
 ---
 
 <prompt — everything Claude Code will receive>
 ```
 
 The name must be a slug: lowercase, alphanumeric, hyphens, underscores only.
+`depends_on` is optional — use it when a task truly cannot run before another.
 
 ## Prompt structure to follow
 
