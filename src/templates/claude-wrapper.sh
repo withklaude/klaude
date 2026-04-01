@@ -52,7 +52,7 @@ check_network() {
 
 is_rate_limit() {
   local output="$1"
-  echo "$output" | grep -qiE "(rate.?limit.*(exceeded|hit|error|retry)|HTTP 429|too many requests|resource.+exhausted|overloaded)" 2>/dev/null
+  echo "$output" | grep -qiE "(rate.?limit.*(exceeded|hit|error|retry)|HTTP 429|too many requests|resource.+exhausted|overloaded|hit your limit|limit.+resets)" 2>/dev/null
 }
 
 is_network_error() {
@@ -83,10 +83,37 @@ while [[ $attempt -lt $MAX_RETRIES ]]; do
   # Check for rate limit
   if is_rate_limit "$OUTPUT"; then
     rate_limit_count=$((rate_limit_count + 1))
-    backoff=$(get_backoff RATE_LIMIT_BACKOFFS $((rate_limit_count - 1)))
-    retry_at=$(date -u -d "+${backoff} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    log "Rate limit hit (#$rate_limit_count). Waiting ${backoff}s..."
+    # Try to parse reset time from output (e.g. "resets 12am", "resets 3pm")
+    reset_hour=""
+    if echo "$OUTPUT" | grep -qoiE "resets [0-9]+[ap]m"; then
+      reset_hour=$(echo "$OUTPUT" | grep -oiE "resets [0-9]+[ap]m" | head -1 | grep -oiE "[0-9]+[ap]m")
+    fi
+
+    if [[ -n "$reset_hour" ]]; then
+      # Calculate seconds until reset
+      reset_epoch=$(date -d "today $reset_hour" +%s 2>/dev/null || date -d "tomorrow $reset_hour" +%s 2>/dev/null || echo "")
+      now_epoch=$(date +%s)
+      if [[ -n "$reset_epoch" ]] && [[ "$reset_epoch" -gt "$now_epoch" ]]; then
+        backoff=$(( reset_epoch - now_epoch + 60 ))  # +60s margin
+        log "Daily limit hit (#$rate_limit_count). Waiting until $reset_hour (~${backoff}s)..."
+      else
+        # Reset time is in the past — it's tomorrow
+        reset_epoch=$(date -d "tomorrow $reset_hour" +%s 2>/dev/null || echo "")
+        if [[ -n "$reset_epoch" ]]; then
+          backoff=$(( reset_epoch - now_epoch + 60 ))
+          log "Daily limit hit (#$rate_limit_count). Waiting until tomorrow $reset_hour (~${backoff}s)..."
+        else
+          backoff=$(get_backoff RATE_LIMIT_BACKOFFS $((rate_limit_count - 1)))
+          log "Rate limit hit (#$rate_limit_count). Waiting ${backoff}s..."
+        fi
+      fi
+    else
+      backoff=$(get_backoff RATE_LIMIT_BACKOFFS $((rate_limit_count - 1)))
+      log "Rate limit hit (#$rate_limit_count). Waiting ${backoff}s..."
+    fi
+
+    retry_at=$(date -u -d "+${backoff} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
     write_status "rate_limited" "Rate limit #$rate_limit_count, waiting ${backoff}s" "$retry_at"
 
     sleep "$backoff"

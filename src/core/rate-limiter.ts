@@ -8,6 +8,8 @@ const RATE_LIMIT_PATTERNS = [
   /resource.+exhausted/i,
   /overloaded/i,
   /retry.?after.*\d+/i,
+  /hit your limit/i,
+  /limit.+resets/i,
 ];
 
 /** Patterns that indicate a network error */
