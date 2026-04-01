@@ -150,6 +150,15 @@ while [[ $attempt -lt $MAX_RETRIES ]]; do
     exit 0
   fi
 
+  # Fatal auth errors — don't retry
+  if echo "$OUTPUT" | grep -qiE "(Invalid API key|invalid.*auth|unauthorized|forbidden.*api|expired.*token)"; then
+    log "FATAL: Authentication error. If using Claude Max, the OAuth token may have expired."
+    log "For overnight runs, set an API key: klaude config set anthropic.api_key <key> --global"
+    write_status "failed" "Auth error — OAuth token may be expired. Use API key for overnight runs."
+    echo "$OUTPUT" >&2
+    exit 1
+  fi
+
   # Non-rate-limit, non-network error — retry up to 2 extra times
   if [[ $attempt -ge 3 ]]; then
     log "Failed after $attempt attempts. Last output: ${OUTPUT:0:500}"
