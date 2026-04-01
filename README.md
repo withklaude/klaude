@@ -18,6 +18,7 @@
 </p>
 
 <p align="center">
+  <a href="https://withklaude.github.io/klaude/">Documentation</a> &middot;
   <a href="#installation">Installation</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#commands">Commands</a> &middot;

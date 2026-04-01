@@ -10,18 +10,89 @@
   <style>
     :root {
       --theme-color: #c084fc;
-      --sidebar-name-color: #c084fc;
+      --sidebar-name-color: #e8a838;
       --sidebar-nav-link-color--active: #c084fc;
+      --sidebar-nav-link-border-color--active: #c084fc;
       --link-color: #c084fc;
-      --blockquote-border-color: #c084fc;
-      --code-theme-background: #1a1a2e;
+      --link-color--hover: #e8a838;
+      --blockquote-border-color: #e8a838;
+      --code-theme-background: #12121e;
+      --code-inline-background: #1e1e30;
+      --code-inline-color: #e8a838;
+      --base-background-color: #0d0d1a;
+      --sidebar-background: #0a0a14;
+      --sidebar-border-color: #1e1e30;
+      --heading-color: #f0f0f0;
+      --base-color: #c8c8d8;
+      --table-row-even-background: #12121e;
+      --notice-tip-border-color: #c084fc;
+      --notice-important-border-color: #e8a838;
     }
     .app-name-link img {
-      width: 64px;
+      width: 72px;
       margin-bottom: 8px;
+    }
+    .app-name-link {
+      text-transform: none !important;
+      font-weight: 700;
+      font-size: 1.2em;
+      color: #e8a838 !important;
     }
     .markdown-section code {
       border-radius: 4px;
+    }
+    .markdown-section pre {
+      border-radius: 8px;
+      border: 1px solid #1e1e30;
+    }
+    .markdown-section table {
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .markdown-section h1 {
+      border-bottom: 2px solid #c084fc;
+      padding-bottom: 0.3em;
+    }
+    .markdown-section h2 {
+      color: #c084fc;
+    }
+    .sidebar-nav li a:hover {
+      color: #e8a838 !important;
+    }
+    /* Install banner */
+    .install-banner {
+      background: linear-gradient(135deg, #1a1a2e 0%, #0d0d1a 100%);
+      border: 1px solid #c084fc;
+      border-radius: 12px;
+      padding: 1.2em 1.5em;
+      margin: 1.5em 0;
+      text-align: center;
+    }
+    .install-banner code {
+      font-size: 1.1em;
+      padding: 0.4em 0.8em;
+      background: #12121e !important;
+      border-radius: 6px;
+    }
+    .install-banner .links {
+      margin-top: 0.8em;
+      display: flex;
+      gap: 1em;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .install-banner .links a {
+      color: #c084fc;
+      text-decoration: none;
+      padding: 0.3em 0.8em;
+      border: 1px solid #c084fc;
+      border-radius: 6px;
+      font-size: 0.85em;
+      transition: all 0.2s;
+    }
+    .install-banner .links a:hover {
+      background: #c084fc;
+      color: #0d0d1a;
     }
   </style>
 </head>
