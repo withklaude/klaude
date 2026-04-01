@@ -81,7 +81,10 @@ Decompose a spec file into ordered tasks. Claude analyzes the work, splits it in
 ```bash
 klaude plan spec.md                   # from file
 klaude plan                           # interactive
+klaude plan spec.md --yes             # skip confirmation
 ```
+
+Claude reads the existing source code to avoid generating tasks for features that are already implemented. If the spec contains checklist items (`- [ ]`), each task prompt includes an instruction to update the file after completion.
 
 ### `klaude task`
 
@@ -118,6 +121,25 @@ klaude status             # running containers and latest report
 klaude status --follow    # stream live logs
 klaude stop               # stop running container
 klaude stop --all         # stop all klaude containers
+```
+
+### `klaude logs`
+
+```bash
+klaude logs <task>            # show logs from the last run
+klaude logs <task> --follow   # tail logs in real-time
+klaude logs <task> --lines 50 # show last 50 lines
+klaude logs <task> --run <id> # logs from a specific run
+```
+
+### `klaude clean`
+
+```bash
+klaude clean                  # remove old runs (keeps last 5) and orphan containers
+klaude clean --all            # remove all runs
+klaude clean --keep 10        # keep last 10 runs
+klaude clean --runs-only      # only clean run directories
+klaude clean --containers-only # only clean orphan containers
 ```
 
 ### `klaude config`
