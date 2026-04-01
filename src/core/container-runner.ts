@@ -185,9 +185,7 @@ export class ContainerRunner extends EventEmitter {
         const hostPath = path.join(claudeDir, file);
         if (fs.existsSync(hostPath)) {
           const content = fs.readFileSync(hostPath, 'utf-8');
-          await this.docker.exec(this.containerId!, [
-            'bash', '-c', `cat > /home/klaude/.claude/${file} << 'KLAUDECREDEOF'\n${content}\nKLAUDECREDEOF`,
-          ]);
+          await this.docker.writeFile(this.containerId!, `/home/klaude/.claude/${file}`, content);
         }
       }
       // Copy backups dir if it exists
@@ -197,9 +195,7 @@ export class ContainerRunner extends EventEmitter {
         const backupFiles = fs.readdirSync(backupsDir).slice(-3); // last 3 backups
         for (const file of backupFiles) {
           const content = fs.readFileSync(path.join(backupsDir, file), 'utf-8');
-          await this.docker.exec(this.containerId!, [
-            'bash', '-c', `cat > /home/klaude/.claude/backups/${file} << 'KLAUDECREDEOF'\n${content}\nKLAUDECREDEOF`,
-          ]);
+          await this.docker.writeFile(this.containerId!, `/home/klaude/.claude/backups/${file}`, content);
         }
       }
       // Restore .claude.json from backup if needed
@@ -290,10 +286,8 @@ export class ContainerRunner extends EventEmitter {
       }
 
 
-      // Write prompt into the container
-      await this.docker.exec(this.containerId!, [
-        'bash', '-c', `cat > /tmp/task-prompt.md << 'KLAUDEPROMPTEOF'\n${prompt}\nKLAUDEPROMPTEOF`,
-      ]);
+      // Write prompt into the container (via tar, no heredoc escaping issues)
+      await this.docker.writeFile(this.containerId!, '/tmp/task-prompt.md', prompt);
 
       // Launch claude-wrapper — Claude Code does everything
       const { stream } = await this.docker.exec(this.containerId!, [

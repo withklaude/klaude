@@ -257,6 +257,55 @@ export class DockerManager extends EventEmitter {
     }));
   }
 
+  /** Write a file into a container using tar archive (no heredoc escaping issues) */
+  async writeFile(containerId: string, containerPath: string, content: string): Promise<void> {
+    const container = this.docker.getContainer(containerId);
+    const fileName = path.basename(containerPath);
+    const dir = path.dirname(containerPath);
+
+    // Build a minimal tar archive in memory
+    // Tar format: 512-byte header + content padded to 512 bytes + 1024 zero bytes
+    const contentBuf = Buffer.from(content, 'utf-8');
+    const nameBytes = Buffer.from(fileName, 'utf-8');
+    const header = Buffer.alloc(512, 0);
+
+    // name (0-99)
+    nameBytes.copy(header, 0, 0, Math.min(nameBytes.length, 100));
+    // mode (100-107) — 0644
+    Buffer.from('0000644\0', 'ascii').copy(header, 100);
+    // uid (108-115)
+    Buffer.from('0001000\0', 'ascii').copy(header, 108);
+    // gid (116-123)
+    Buffer.from('0001000\0', 'ascii').copy(header, 116);
+    // size (124-135) — octal
+    Buffer.from(contentBuf.length.toString(8).padStart(11, '0') + '\0', 'ascii').copy(header, 124);
+    // mtime (136-147)
+    Buffer.from(Math.floor(Date.now() / 1000).toString(8).padStart(11, '0') + '\0', 'ascii').copy(header, 136);
+    // typeflag (156) — '0' = regular file
+    header[156] = 48; // ASCII '0'
+    // magic (257-262) — 'ustar\0'
+    Buffer.from('ustar\0', 'ascii').copy(header, 257);
+    // version (263-264) — '00'
+    Buffer.from('00', 'ascii').copy(header, 263);
+
+    // Compute checksum (sum of all header bytes, with checksum field as spaces)
+    Buffer.from('        ', 'ascii').copy(header, 148); // 8 spaces for checksum field
+    let checksum = 0;
+    for (let i = 0; i < 512; i++) checksum += header[i];
+    Buffer.from(checksum.toString(8).padStart(6, '0') + '\0 ', 'ascii').copy(header, 148);
+
+    // Content padded to 512-byte boundary
+    const padding = 512 - (contentBuf.length % 512);
+    const contentPadded = padding === 512 ? contentBuf : Buffer.concat([contentBuf, Buffer.alloc(padding, 0)]);
+
+    // End-of-archive marker (two 512-byte zero blocks)
+    const endMarker = Buffer.alloc(1024, 0);
+
+    const tarBuf = Buffer.concat([header, contentPadded, endMarker]);
+
+    await container.putArchive(tarBuf, { path: dir });
+  }
+
   /** Read a file from inside a container */
   async readFile(containerId: string, filePath: string): Promise<string | null> {
     try {
