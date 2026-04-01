@@ -151,11 +151,14 @@
     .install-banner .install-cmd {
       cursor: pointer;
       transition: all 0.2s;
-      user-select: all;
     }
     .install-banner .install-cmd:hover {
       border-color: #c084fc;
       box-shadow: 0 0 12px rgba(192, 132, 252, 0.15);
+    }
+    .install-banner .install-cmd.copied {
+      border-color: #22c55e;
+      color: #22c55e !important;
     }
     .install-banner code {
       font-size: 1.05em;
@@ -311,6 +314,23 @@
         successText: 'Copied!',
       },
     };
+  </script>
+  <script>
+    document.addEventListener('click', function(e) {
+      var el = e.target;
+      if (el.classList.contains('install-cmd')) {
+        var text = el.textContent;
+        navigator.clipboard.writeText(text).then(function() {
+          var orig = el.textContent;
+          el.textContent = 'Copied!';
+          el.classList.add('copied');
+          setTimeout(function() {
+            el.textContent = orig;
+            el.classList.remove('copied');
+          }, 1500);
+        });
+      }
+    });
   </script>
   <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>

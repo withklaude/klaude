@@ -94,16 +94,3 @@ Claude Code runs inside an **isolated Docker container** — not on your machine
 3. [Learn about tasks](tasks.md)
 4. [Full command reference](commands.md)
 
-<script>
-document.addEventListener('click', function(e) {
-  if (e.target.classList.contains('install-cmd')) {
-    navigator.clipboard.writeText(e.target.textContent).then(function() {
-      var el = e.target;
-      var orig = el.textContent;
-      el.textContent = 'Copied!';
-      el.style.color = '#22c55e';
-      setTimeout(function() { el.textContent = orig; el.style.color = ''; }, 1500);
-    });
-  }
-});
-</script>
