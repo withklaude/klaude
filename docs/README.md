@@ -7,7 +7,10 @@
 </p>
 
 <div class="install-banner">
-  <code>npm install -g klaude-tool</code>
+  <div class="install-row">
+    <code>npm install -g klaude-tool</code>
+    <button class="copy-btn" onclick="navigator.clipboard.writeText('npm install -g klaude-tool').then(()=>{this.textContent='Copied!';this.classList.add('copied');setTimeout(()=>{this.textContent='Copy';this.classList.remove('copied')},2000)})">Copy</button>
+  </div>
   <div class="links">
     <a href="https://www.npmjs.com/package/klaude-tool">npm</a>
     <a href="https://github.com/withklaude/klaude">GitHub</a>
