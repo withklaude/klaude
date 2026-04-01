@@ -80,6 +80,22 @@ export class ContainerRunner extends EventEmitter {
 
       // Configure git and Claude inside the container
       await this.configureContainer();
+      await this.healthcheck();
+
+      if (this.options.resume) {
+        // Reset tasks stuck in 'running' state (from interrupted runs)
+        const recovered = this.stateManager.recoverInterrupted();
+        if (recovered.length > 0) {
+          this.emit('log', `Recovered ${recovered.length} interrupted task(s): ${recovered.join(', ')}`);
+        }
+
+        // Report what will be skipped vs re-run
+        const willSkip = this.runState.tasks.filter(t => !this.stateManager.shouldRun(t.task.name));
+        const willRun = this.runState.tasks.filter(t => this.stateManager.shouldRun(t.task.name));
+        if (willSkip.length > 0) {
+          this.emit('log', `Resuming: skipping ${willSkip.length} completed task(s), running ${willRun.length}`);
+        }
+      }
 
       // Run each task: skip completed/skipped, retry failed, run pending
       for (const taskState of this.runState.tasks) {
@@ -158,12 +174,85 @@ export class ContainerRunner extends EventEmitter {
       ]);
     }
 
-    // Restore Claude config from backup if needed (mounted .claude dir may not have .claude.json)
-    await this.docker.exec(this.containerId!, [
-      'bash', '-c', `if [ ! -f ~/.claude.json ] && ls ~/.claude/backups/.claude.json.backup.* 1>/dev/null 2>&1; then cp "$(ls -t ~/.claude/backups/.claude.json.backup.* | head -1)" ~/.claude.json; fi`,
-    ]);
+    // Copy Claude Code config into the container (not mounted, so Claude can refresh tokens)
+    const claudeDir = this.config.getClaudeConfigDir();
+    if (claudeDir) {
+      this.emit('log', 'Copying Claude Code credentials into container...');
+      await this.docker.exec(this.containerId!, ['mkdir', '-p', '/home/klaude/.claude']);
+      // Copy all credential files
+      const credFiles = ['.credentials.json', '.claude.json', 'settings.json'];
+      for (const file of credFiles) {
+        const hostPath = path.join(claudeDir, file);
+        if (fs.existsSync(hostPath)) {
+          const content = fs.readFileSync(hostPath, 'utf-8');
+          await this.docker.exec(this.containerId!, [
+            'bash', '-c', `cat > /home/klaude/.claude/${file} << 'KLAUDECREDEOF'\n${content}\nKLAUDECREDEOF`,
+          ]);
+        }
+      }
+      // Copy backups dir if it exists
+      const backupsDir = path.join(claudeDir, 'backups');
+      if (fs.existsSync(backupsDir)) {
+        await this.docker.exec(this.containerId!, ['mkdir', '-p', '/home/klaude/.claude/backups']);
+        const backupFiles = fs.readdirSync(backupsDir).slice(-3); // last 3 backups
+        for (const file of backupFiles) {
+          const content = fs.readFileSync(path.join(backupsDir, file), 'utf-8');
+          await this.docker.exec(this.containerId!, [
+            'bash', '-c', `cat > /home/klaude/.claude/backups/${file} << 'KLAUDECREDEOF'\n${content}\nKLAUDECREDEOF`,
+          ]);
+        }
+      }
+      // Restore .claude.json from backup if needed
+      await this.docker.exec(this.containerId!, [
+        'bash', '-c', `if [ ! -f ~/.claude.json ] && ls ~/.claude/backups/.claude.json.backup.* 1>/dev/null 2>&1; then cp "$(ls -t ~/.claude/backups/.claude.json.backup.* | head -1)" ~/.claude.json; fi`,
+      ]);
+    }
 
     this.emit('log', `Container configured (git: ${gitUser} <${gitEmail}>)`);
+  }
+
+  private async healthcheck(): Promise<void> {
+    this.emit('log', 'Running healthcheck...');
+    const checks: Array<{ name: string; cmd: string[]; validate?: (output: string) => boolean }> = [
+      {
+        name: 'Container responsive',
+        cmd: ['echo', 'ok'],
+        validate: (out) => out.trim() === 'ok',
+      },
+      {
+        name: 'Git available',
+        cmd: ['git', '--version'],
+        validate: (out) => out.includes('git version'),
+      },
+      {
+        name: 'Claude Code CLI available',
+        cmd: ['claude', '--version'],
+      },
+      {
+        name: 'Workspace mounted',
+        cmd: ['ls', '/workspace'],
+      },
+      {
+        name: 'API key or Claude config present',
+        cmd: ['bash', '-c', 'test -n "$ANTHROPIC_API_KEY" || test -f ~/.claude.json && echo ok'],
+        validate: (out) => out.trim() === 'ok',
+      },
+    ];
+
+    for (const check of checks) {
+      try {
+        const { stream } = await this.docker.exec(this.containerId!, check.cmd);
+        const output = await this.streamToString(stream);
+        if (check.validate && !check.validate(output)) {
+          throw new Error(`Validation failed: ${output}`);
+        }
+        this.emit('log', `  ✓ ${check.name}`);
+      } catch (err) {
+        throw new Error(`Healthcheck failed: ${check.name} — ${(err as Error).message}`);
+      }
+    }
+
+    this.emit('log', 'Healthcheck passed.');
   }
 
   // ─── Task Execution ─────────────────────────────────────────
@@ -177,6 +266,19 @@ export class ContainerRunner extends EventEmitter {
     taskState.container_id = this.containerId;
     this.stateManager.markRunning(task.name, this.runState.id);
     this.emit('task-start', task.name);
+
+    const timeoutMinutes = task.settings?.timeout || this.options.timeout || 0;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let timeoutReject: ((err: Error) => void) | undefined;
+
+    // Get git HEAD before task runs
+    let headBefore = '';
+    try {
+      const { stream: headStream } = await this.docker.exec(this.containerId!, [
+        'git', '-C', '/workspace', 'rev-parse', 'HEAD',
+      ]);
+      headBefore = await this.streamToString(headStream);
+    } catch { /* git not initialized */ }
 
     try {
       // Build prompt: task + env vars + roadmap instruction
@@ -201,7 +303,7 @@ export class ContainerRunner extends EventEmitter {
 
       // Stream output (demultiplexed into stdout/stderr)
       const demuxed = demuxExecStream(stream);
-      await new Promise<void>((resolve, reject) => {
+      const streamPromise = new Promise<void>((resolve, reject) => {
         let output = '';
 
         demuxed.on('data', ({ type: streamType, data }: { type: 'stdout' | 'stderr'; data: string }) => {
@@ -238,6 +340,24 @@ export class ContainerRunner extends EventEmitter {
         demuxed.on('error', reject);
       });
 
+      const timeoutPromise = timeoutMinutes > 0
+        ? new Promise<void>((_resolve, reject) => {
+            timeoutReject = reject;
+            timeoutHandle = setTimeout(async () => {
+              taskState.status = 'failed';
+              taskState.timed_out = true;
+              taskState.error = `Task timed out after ${timeoutMinutes} minutes`;
+              try {
+                await this.docker.exec(this.containerId!, ['pkill', '-f', 'claude']);
+              } catch { /* ignore — process may already be gone */ }
+              this.emit('task-timeout', { task: task.name, timeout: timeoutMinutes });
+              reject(new Error(taskState.error));
+            }, timeoutMinutes * 60 * 1000);
+          })
+        : null;
+
+      await (timeoutPromise ? Promise.race([streamPromise, timeoutPromise]) : streamPromise);
+
       // Check final status
       const statusJson = await this.docker.readFile(this.containerId!, '/tmp/klaude-status.json');
       let finalResolved = false;
@@ -258,11 +378,34 @@ export class ContainerRunner extends EventEmitter {
       }
 
     } catch (err) {
-      taskState.status = 'failed';
-      taskState.error = (err as Error).message;
-      this.emit('task-error', { task: task.name, error: taskState.error });
+      if (!taskState.timed_out) {
+        taskState.status = 'failed';
+        taskState.error = (err as Error).message;
+        this.emit('task-error', { task: task.name, error: taskState.error });
+      }
     } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       taskState.completed_at = new Date().toISOString();
+
+      // Capture git diff for this task
+      try {
+        const { stream: diffStream } = await this.docker.exec(this.containerId!, [
+          'git', '-C', '/workspace', 'diff', 'HEAD',
+        ]);
+        const diff = await this.streamToString(diffStream);
+
+        let commitLog = '';
+        if (headBefore.trim()) {
+          const { stream: logStream } = await this.docker.exec(this.containerId!, [
+            'git', '-C', '/workspace', 'log', '--oneline', `${headBefore.trim()}..HEAD`,
+          ]);
+          commitLog = await this.streamToString(logStream);
+        }
+
+        const diffPath = path.join(this.getRunDir(), `${task.name}.diff`);
+        const diffContent = `# Git changes for task: ${task.name}\n\n## Commits\n${commitLog}\n\n## Diff\n${diff}`;
+        fs.writeFileSync(diffPath, diffContent, 'utf-8');
+      } catch { /* ignore git errors */ }
 
       // Persist task state
       if (taskState.status === 'completed') {
@@ -280,6 +423,16 @@ export class ContainerRunner extends EventEmitter {
         waitTime: stats.totalWaitTimeMs,
       });
     }
+  }
+
+  private async streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+    const demuxed = demuxExecStream(stream);
+    return new Promise<string>((resolve, reject) => {
+      const parts: string[] = [];
+      demuxed.on('data', ({ data }: { type: string; data: string }) => parts.push(data));
+      demuxed.on('end', () => resolve(parts.join('')));
+      demuxed.on('error', reject);
+    });
   }
 
   // ─── Preflight ──────────────────────────────────────────────
@@ -399,6 +552,15 @@ export class ContainerRunner extends EventEmitter {
 - **Failed:** ${failed} ✗
 - **Rate limits hit:** ${totalRateLimits}
 - **Network errors:** ${totalNetworkErrors}
+
+## Changes
+
+${this.runState.tasks.map(t => {
+      const diffPath = path.join(runDir, `${t.task.name}.diff`);
+      if (!fs.existsSync(diffPath)) return null;
+      const size = fs.statSync(diffPath).size;
+      return `- ${t.task.name}.diff (${size} bytes)`;
+    }).filter(Boolean).join('\n') || '_No diffs captured_'}
 
 ## Task Details
 

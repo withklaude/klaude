@@ -147,10 +147,8 @@ export class DockerManager extends EventEmitter {
       `${repoPath}:/workspace`,
     ];
 
-    // Mount Claude Code config from host (into non-root user home)
-    if (claudeConfigDir) {
-      binds.push(`${claudeConfigDir}:/home/klaude/.claude`);
-    }
+    // Claude config is copied in (not mounted) so Claude Code can refresh tokens
+    // See configureContainer() in container-runner.ts
 
     // Extra mounts from config
     for (const mount of extraMounts) {
