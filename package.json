@@ -1,0 +1,54 @@
+{
+  "name": "klaude-tool",
+  "version": "0.1.1",
+  "description": "CLI to orchestrate Claude Code tasks in Docker containers — plan by day, run overnight",
+  "type": "module",
+  "bin": {
+    "klaude": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc && node -e \"const fs=require('fs');fs.cpSync('src/templates','dist/templates',{recursive:true})\"",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "claude",
+    "cli",
+    "docker",
+    "automation"
+  ],
+  "author": "Davide",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/withklaude/klaude.git"
+  },
+  "bugs": {
+    "url": "https://github.com/withklaude/klaude/issues"
+  },
+  "homepage": "https://github.com/withklaude/klaude#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "dockerode": "^4.0.10",
+    "gray-matter": "^4.0.3",
+    "inquirer": "^13.3.2",
+    "ora": "^9.3.0",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1",
+    "@types/inquirer": "^9.0.9",
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
