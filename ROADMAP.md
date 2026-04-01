@@ -20,12 +20,15 @@
 
 ## v0.2 — Usability
 
-- [ ] `klaude plan` shows preview and asks confirmation before creating
+- [x] `klaude plan` shows preview and asks confirmation before creating
 - [ ] `klaude run --watch` restarts automatically if tasks change
-- [ ] `klaude clean` removes old runs and orphan containers
-- [ ] `klaude logs <task>` shows logs from the last run
+- [x] `klaude clean` removes old runs and orphan containers
+- [x] `klaude logs <task>` shows logs from the last run
 - [ ] Notification on run completion (terminal bell, desktop notification)
-- [ ] Colored output to distinguish stderr/stdout from Claude
+- [x] Colored output to distinguish stderr/stdout from Claude
+- [x] `klaude plan` reads project code to avoid duplicating existing features
+- [x] Graceful shutdown: Ctrl+C stops the container
+- [x] Fix false positive rate limit detection
 
 ## v0.3 — Reliability
 
@@ -36,7 +39,7 @@
 
 ## v0.4 — Smart planning
 
-- [ ] `klaude plan` reads project code for better context
+- [x] `klaude plan` reads project code for better context
 - [ ] Explicit task dependencies (task B waits for task A)
 - [ ] `klaude plan --from-issues` generates tasks from GitHub issues
 - [ ] `klaude plan --append` adds tasks to an existing plan
