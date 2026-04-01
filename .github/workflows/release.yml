@@ -35,6 +35,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify package contents
+        run: |
+          echo "=== Files in package ==="
+          npm pack --dry-run 2>&1 | head -30
+          echo "=== README exists ==="
+          ls -la README.md
+
       - name: Publish
         run: npm publish --provenance --access public
         env:
