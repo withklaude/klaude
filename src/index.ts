@@ -32,12 +32,8 @@ async function checkForUpdate(): Promise<void> {
       const [bMaj, bMin, bPat] = latest.split('.').map(Number);
       const npmIsNewer = bMaj > aMaj || (bMaj === aMaj && bMin > aMin) || (bMaj === aMaj && bMin === aMin && bPat > aPat);
       if (npmIsNewer) {
-        console.log(`\x1b[33mUpdating klaude ${currentVersion} → ${latest}...\x1b[0m`);
-        execSync('npm install -g klaude-tool@latest', {
-          stdio: 'inherit',
-          timeout: 60000,
-        });
-        console.log(`\x1b[32m✓ Updated to ${latest}\x1b[0m\n`);
+        console.log(`\x1b[33mklaude ${latest} available (current: ${currentVersion}). Update with:\x1b[0m`);
+        console.log(`\x1b[33m  npm install -g klaude-tool@latest\x1b[0m\n`);
       }
     }
   } catch {
