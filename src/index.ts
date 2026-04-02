@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
@@ -27,13 +27,28 @@ async function checkForUpdate(): Promise<void> {
     }).trim();
 
     if (latest && latest !== currentVersion) {
-      // Only update if npm version is newer (not older)
       const [aMaj, aMin, aPat] = currentVersion.split('.').map(Number);
       const [bMaj, bMin, bPat] = latest.split('.').map(Number);
       const npmIsNewer = bMaj > aMaj || (bMaj === aMaj && bMin > aMin) || (bMaj === aMaj && bMin === aMin && bPat > aPat);
       if (npmIsNewer) {
-        console.log(`\x1b[33mklaude ${latest} available (current: ${currentVersion}). Update with:\x1b[0m`);
-        console.log(`\x1b[33m  npm install -g klaude-tool@latest\x1b[0m\n`);
+        console.log(`\x1b[33mUpdating klaude ${currentVersion} → ${latest}...\x1b[0m`);
+
+        // Spawn a detached process that waits for us to exit, updates, then re-runs the command.
+        // This avoids EPERM on Windows where running .node files can't be overwritten.
+        const userArgs = process.argv.slice(2).map(a => `"${a}"`).join(' ');
+        const isWindows = process.platform === 'win32';
+        const shell = isWindows ? 'cmd' : 'sh';
+        const shellFlag = isWindows ? '/c' : '-c';
+        const sleepCmd = isWindows ? 'ping -n 2 127.0.0.1 >nul' : 'sleep 1';
+        const script = `${sleepCmd} && npm install -g klaude-tool@latest && klaude ${userArgs}`;
+
+        const child = spawn(shell, [shellFlag, script], {
+          detached: true,
+          stdio: 'inherit',
+          shell: false,
+        });
+        child.unref();
+        process.exit(0);
       }
     }
   } catch {
