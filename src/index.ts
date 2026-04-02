@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync, spawn } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
@@ -33,22 +33,32 @@ async function checkForUpdate(): Promise<void> {
       if (npmIsNewer) {
         console.log(`\x1b[33mUpdating klaude ${currentVersion} → ${latest}...\x1b[0m`);
 
-        // Spawn a detached process that waits for us to exit, updates, then re-runs the command.
-        // This avoids EPERM on Windows where running .node files can't be overwritten.
-        const userArgs = process.argv.slice(2).map(a => `"${a}"`).join(' ');
-        const isWindows = process.platform === 'win32';
-        const shell = isWindows ? 'cmd' : 'sh';
-        const shellFlag = isWindows ? '/c' : '-c';
-        const sleepCmd = isWindows ? 'ping -n 2 127.0.0.1 >nul' : 'sleep 1';
-        const script = `${sleepCmd} && npm install -g klaude-tool@latest && klaude ${userArgs}`;
+        try {
+          execSync('npm install -g klaude-tool@latest', {
+            stdio: 'inherit',
+            windowsHide: true,
+          });
+          console.log(`\x1b[32m✓ Update complete\x1b[0m`);
 
-        const child = spawn(shell, [shellFlag, script], {
-          detached: true,
-          stdio: 'inherit',
-          shell: false,
-        });
-        child.unref();
-        process.exit(0);
+          const cliArgs = process.argv.slice(2);
+          if (cliArgs.length > 0) {
+            console.log(`\x1b[33m↻ Re-running previous command...\x1b[0m`);
+            const rerunCommand = process.platform === 'win32' ? 'klaude.cmd' : 'klaude';
+            const rerun = spawnSync(rerunCommand, cliArgs, {
+              stdio: 'inherit',
+              shell: process.platform === 'win32',
+              windowsHide: true,
+            });
+
+            if (rerun.status !== 0) {
+              process.exit(rerun.status ?? 1);
+            }
+
+            process.exit(0);
+          }
+        } catch {
+          console.log(`\x1b[33m⚠ Update failed, continuing with current version\x1b[0m`);
+        }
       }
     }
   } catch {
