@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
-import { execSync, spawnSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
@@ -34,28 +37,49 @@ async function checkForUpdate(): Promise<void> {
         console.log(`\x1b[33mUpdating klaude ${currentVersion} → ${latest}...\x1b[0m`);
 
         try {
-          execSync('npm install -g klaude-tool@latest', {
+          const cliArgs = process.argv.slice(2);
+          const updaterScript = `
+import { execSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+
+const args = JSON.parse(process.argv[2] ?? '[]');
+const updaterPath = process.argv[3];
+
+try {
+  execSync('npm install -g klaude-tool@latest', { stdio: 'inherit', windowsHide: true });
+  const rerunCommand = process.platform === 'win32' ? 'klaude.cmd' : 'klaude';
+  const rerun = spawnSync(rerunCommand, args, {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    windowsHide: true,
+  });
+
+  process.exit(rerun.status ?? 0);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  process.exit(1);
+} finally {
+  try {
+    fs.unlinkSync(updaterPath);
+  } catch {
+    // ignore cleanup failures
+  }
+}
+`;
+
+          const updaterPath = path.join(os.tmpdir(), `klaude-updater-${Date.now()}.mjs`);
+          fs.writeFileSync(updaterPath, updaterScript, 'utf-8');
+
+          const child = spawn(process.execPath, [updaterPath, JSON.stringify(cliArgs), updaterPath], {
+            detached: true,
             stdio: 'inherit',
             windowsHide: true,
           });
-          console.log(`\x1b[32m✓ Update complete\x1b[0m`);
 
-          const cliArgs = process.argv.slice(2);
-          if (cliArgs.length > 0) {
-            console.log(`\x1b[33m↻ Re-running previous command...\x1b[0m`);
-            const rerunCommand = process.platform === 'win32' ? 'klaude.cmd' : 'klaude';
-            const rerun = spawnSync(rerunCommand, cliArgs, {
-              stdio: 'inherit',
-              shell: process.platform === 'win32',
-              windowsHide: true,
-            });
-
-            if (rerun.status !== 0) {
-              process.exit(rerun.status ?? 1);
-            }
-
-            process.exit(0);
-          }
+          child.unref();
+          console.log(`\x1b[32m✓ Update scheduled; continuing in the same console after restart\x1b[0m`);
+          process.exit(0);
         } catch {
           console.log(`\x1b[33m⚠ Update failed, continuing with current version\x1b[0m`);
         }
