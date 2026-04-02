@@ -3,9 +3,8 @@
 ## Prerequisites
 
 - **Node.js** >= 18
-- **Docker Desktop** running
-- **Claude Code** CLI installed (`npm install -g @anthropic-ai/claude-code`)
-- An Anthropic API key or Claude Max/Pro subscription
+- **Docker Desktop** running (with daemon active)
+- An Anthropic API key (or Claude Max/Pro subscription)
 
 ## Install
 
@@ -19,6 +18,8 @@ The CLI installs as the `klaude` command:
 klaude --version
 ```
 
+Claude Code is installed automatically during `klaude init` — no separate installation needed.
+
 ## Auto-update
 
 klaude checks for updates on every startup. If a newer version is available on npm, it updates automatically. No action needed.
@@ -31,9 +32,6 @@ klaude --version
 
 # Check Docker is running
 docker info
-
-# Check Claude Code is available
-claude --version
 ```
 
 ## Initialize a project

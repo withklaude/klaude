@@ -72,6 +72,7 @@ export interface RunOptions {
   dryRun: boolean;
   resume: boolean;
   watch: boolean;
+  rebuild: boolean;
   timeout?: number;
 }
 

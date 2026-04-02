@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { input, confirm } from '@inquirer/prompts';
+import { input, confirm, select, editor } from '@inquirer/prompts';
 import chalk from 'chalk';
+import YAML from 'yaml';
 import { ConfigManager } from '../core/config-manager.js';
 
 /** Get the path to a bundled template file */
@@ -28,15 +29,15 @@ export async function initCommand(): Promise<void> {
   console.log(chalk.bold('\n🔧 Initializing klaude project...\n'));
 
   const config = new ConfigManager();
-
-  // Init project structure
   const dir = config.initProject(cwd);
   console.log(chalk.green(`✓ Created ${path.relative(cwd, dir)}/`));
 
-  // Install Claude Code agent
+  // Install Claude Code agent helper
   installClaudeAgent(cwd);
 
-  // Check API key
+  // ─── 1. Authentication ─────────────────────────────────────
+  console.log(chalk.bold('\n📋 1/4 — Authentication\n'));
+
   const apiKey = config.resolveApiKey();
   if (apiKey) {
     console.log(chalk.green('✓ API key detected from host (Claude Code / env)'));
@@ -52,8 +53,9 @@ export async function initCommand(): Promise<void> {
     }
   }
 
-  // Git config (used inside the container so Claude can commit/push)
-  console.log(chalk.dim('\n  Git config is used inside the container so Claude can commit and push.\n'));
+  // ─── 2. Git ────────────────────────────────────────────────
+  console.log(chalk.bold('\n📋 2/4 — Git\n'));
+  console.log(chalk.dim('  Used inside the container for commits and pushes.\n'));
 
   const gitUser = await input({ message: 'Git username:', default: 'klaude' });
   if (gitUser.trim()) config.setGlobal('git.user', gitUser.trim());
@@ -70,35 +72,209 @@ export async function initCommand(): Promise<void> {
     }
   }
 
-  // Extra env vars
-  console.log(chalk.dim('\n  Environment variables available to Claude inside the container (e.g. NPM_TOKEN, SONAR_TOKEN).\n'));
+  // ─── 3. Agent Behavior ─────────────────────────────────────
+  console.log(chalk.bold('\n📋 3/4 — Agent behavior\n'));
+  console.log(chalk.dim('  Controls how the agent works inside the container.\n'));
 
+  const agentConfig = await setupAgentConfig();
+
+  const agentYamlPath = path.join(klaudeDir, 'agent.yaml');
+  fs.writeFileSync(agentYamlPath, YAML.stringify(agentConfig), 'utf-8');
+  console.log(chalk.green('✓ Agent config saved (.klaude/agent.yaml)'));
+
+  // ─── 4. Docker & Environment ───────────────────────────────
+  console.log(chalk.bold('\n📋 4/4 — Docker & Environment\n'));
+
+  const dockerMemory = await input({ message: 'Container memory limit:', default: '4g' });
+  config.setProject('docker.memory', dockerMemory.trim());
+
+  const dockerCpus = await input({ message: 'Container CPU limit:', default: '2' });
+  config.setProject('docker.cpus', Number(dockerCpus.trim()) || 2);
+
+  console.log(chalk.dim('\n  Environment variables available to Claude inside the container.\n'));
   let addMore = await confirm({ message: 'Add environment variables?', default: false });
   while (addMore) {
     const name = await input({ message: 'Variable name:' });
     const value = await input({ message: `Value for ${name.trim()}:` });
     if (name.trim() && value.trim()) {
-      config.setGlobal(`env.${name.trim()}`, value.trim());
+      config.setProject(`env.${name.trim()}`, value.trim());
       console.log(chalk.green(`✓ ${name.trim()} saved`));
     }
     addMore = await confirm({ message: 'Add another?', default: false });
   }
 
-  // Claude Code config
+  // Claude Code config detection
   const claudeDir = config.getClaudeConfigDir();
   if (claudeDir) {
-    console.log(chalk.green(`✓ Claude Code config found at ${claudeDir} (will be mounted in container)`));
+    console.log(chalk.green(`\n✓ Claude Code config found at ${claudeDir} (will be mounted in container)`));
   }
 
+  // ─── Done ──────────────────────────────────────────────────
   console.log(chalk.bold('\n✅ klaude initialized!\n'));
   console.log('Next steps:');
   console.log(`  ${chalk.cyan('klaude task new')}        — create a task`);
   console.log(`  ${chalk.cyan('klaude task generate')}   — generate task with Claude`);
   console.log(`  ${chalk.cyan('klaude run --overnight')} — run all tasks overnight`);
   console.log('');
-  console.log(chalk.dim('  Claude Code agent installed: use /klaude in Claude Code for guided help'));
-  console.log('');
 }
+
+// ─── Agent Config Setup ────────────────────────────────────────
+
+interface AgentConfig {
+  agent: {
+    language: string;
+    on_error: string;
+    auto_commit: boolean;
+    commit_style?: string;
+    commit_prefix?: string;
+    branch_strategy: string;
+    branch_prefix?: string;
+    auto_push: boolean;
+    run_tests: boolean;
+    test_command?: string;
+    protected_paths?: string[];
+    custom_instructions?: string;
+  };
+}
+
+async function setupAgentConfig(): Promise<AgentConfig> {
+  // Language
+  const language = await select({
+    message: 'Agent language:',
+    choices: [
+      { name: 'English', value: 'english' },
+      { name: 'Italiano', value: 'italiano' },
+      { name: 'Auto (follow task language)', value: 'auto' },
+    ],
+    default: 'english',
+  });
+
+  // Error handling
+  const onError = await select({
+    message: 'When a task fails:',
+    choices: [
+      { name: 'Continue with remaining tasks', value: 'continue' },
+      { name: 'Stop immediately', value: 'stop' },
+    ],
+    default: 'continue',
+  });
+
+  // Git: commits
+  const autoCommit = await confirm({
+    message: 'Auto-commit after each task?',
+    default: false,
+  });
+
+  let commitStyle = 'conventional';
+  let commitPrefix = '';
+  if (autoCommit) {
+    commitStyle = await select({
+      message: 'Commit message style:',
+      choices: [
+        { name: 'Conventional (feat:, fix:, chore:, ...)', value: 'conventional' },
+        { name: 'Free form', value: 'free' },
+        { name: 'Custom prefix', value: 'prefix' },
+      ],
+      default: 'conventional',
+    }) as string;
+
+    if (commitStyle === 'prefix') {
+      commitPrefix = await input({ message: 'Commit prefix:', default: '[klaude]' });
+    }
+  }
+
+  // Git: branches
+  const branchStrategy = await select({
+    message: 'Branch strategy:',
+    choices: [
+      { name: 'Work on current branch', value: 'current' },
+      { name: 'Create a branch per task (e.g. klaude/task-name)', value: 'per-task' },
+      { name: 'Create a branch per run (e.g. klaude/run-2026-04-02)', value: 'per-run' },
+    ],
+    default: 'current',
+  });
+
+  let branchPrefix = '';
+  if (branchStrategy !== 'current') {
+    branchPrefix = await input({ message: 'Branch prefix:', default: 'klaude/' });
+  }
+
+  // Git: push
+  const autoPush = await confirm({
+    message: 'Auto-push after completing tasks?',
+    default: false,
+  });
+
+  // Testing
+  const runTests = await confirm({
+    message: 'Run tests after each task?',
+    default: false,
+  });
+
+  let testCommand = '';
+  if (runTests) {
+    testCommand = await input({ message: 'Test command:', default: 'npm test' });
+  }
+
+  // Protected paths
+  const hasProtected = await confirm({
+    message: 'Restrict access to certain paths?',
+    default: false,
+  });
+
+  const protectedPaths: string[] = [];
+  if (hasProtected) {
+    const pathsText = await editor({
+      message: 'Protected paths (one per line):',
+      default: 'legacy/\n.env\n',
+      postfix: '.txt',
+    });
+    for (const line of pathsText.split('\n')) {
+      if (line.trim()) protectedPaths.push(line.trim());
+    }
+  }
+
+  // Custom instructions
+  const hasCustom = await confirm({
+    message: 'Add custom instructions for the agent?',
+    default: false,
+  });
+
+  let customInstructions = '';
+  if (hasCustom) {
+    customInstructions = await editor({
+      message: 'Custom instructions (multiline):',
+      default: '',
+      postfix: '.md',
+    });
+  }
+
+  // Build config object
+  const config: AgentConfig = {
+    agent: {
+      language,
+      on_error: onError,
+      auto_commit: autoCommit,
+      branch_strategy: branchStrategy,
+      auto_push: autoPush,
+      run_tests: runTests,
+    },
+  };
+
+  if (autoCommit) {
+    config.agent.commit_style = commitStyle;
+    if (commitPrefix) config.agent.commit_prefix = commitPrefix;
+  }
+
+  if (branchPrefix) config.agent.branch_prefix = branchPrefix;
+  if (testCommand) config.agent.test_command = testCommand;
+  if (protectedPaths.length > 0) config.agent.protected_paths = protectedPaths;
+  if (customInstructions.trim()) config.agent.custom_instructions = customInstructions.trim();
+
+  return config;
+}
+
+// ─── Helpers ───────────────────────────────────────────────────
 
 /** Install the klaude agent into .claude/agents/ so Claude Code can use it */
 function installClaudeAgent(projectRoot: string): void {

@@ -9,6 +9,9 @@ klaude run --overnight         # unlimited retries, run all night
 klaude run --dry-run           # preview without executing
 klaude run --resume            # resume an interrupted run
 klaude run --watch             # restart when task files change
+klaude run --timeout <minutes> # set max execution time (all tasks)
+klaude run --rebuild           # rebuild Docker image before running
+klaude run --no-notify         # disable completion notifications
 ```
 
 ## What happens during a run

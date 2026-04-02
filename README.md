@@ -123,6 +123,10 @@ klaude run --all          # run all tasks in priority order
 klaude run --overnight    # all tasks, unlimited retries on rate limits
 klaude run --dry-run      # preview without executing
 klaude run --resume       # resume an interrupted run
+klaude run --watch        # restart if task files change
+klaude run --timeout <minutes> # set max execution time for all tasks
+klaude run --rebuild      # force rebuild Docker image before running
+klaude run --no-notify    # disable completion notifications
 ```
 
 Only pending and failed tasks run. Completed tasks are skipped automatically. Use `task reset` to re-run a completed task.
@@ -143,6 +147,7 @@ klaude logs <task>            # show logs from the last run
 klaude logs <task> --follow   # tail logs in real-time
 klaude logs <task> --lines 50 # show last 50 lines
 klaude logs <task> --run <id> # logs from a specific run
+klaude logs <task> --diff     # show git diff of changes instead of logs
 ```
 
 ### `klaude clean`

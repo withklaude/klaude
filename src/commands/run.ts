@@ -13,12 +13,14 @@ interface RunCommandOptions {
   dryRun?: boolean;
   resume?: boolean;
   watch?: boolean;
+  rebuild?: boolean;
   notify?: boolean;
   timeout?: number;
 }
 
 function sendNotification(title: string, message: string): void {
   try {
+    // Bell sound for terminal (works everywhere)
     process.stdout.write('\x07');
   } catch {
     // ignore
@@ -30,16 +32,46 @@ function sendNotification(title: string, message: string): void {
     } else if (process.platform === 'linux') {
       execSync(`notify-send "${title}" "${message}"`, { stdio: 'ignore' });
     } else if (process.platform === 'win32') {
-      const ps = `[System.Windows.Forms.MessageBox]::Show('${message}', '${title}')`;
-      execSync(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; ${ps}"`, { stdio: 'ignore' });
+      // Windows: use subtle toast notification (non-blocking, bottom-right)
+      // Only try if Windows 10+ (has UWP toast support)
+      try {
+        const payload = {
+          title,
+          message,
+        };
+        const ps = `
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications.ToastNotificationManager] | Out-Null
+[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications.ToastNotification] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument] | Out-Null
+
+$APP_ID = 'klaude'
+$template = @"
+<toast>
+  <visual>
+    <binding template="ToastText02">
+      <text id="1">${title}</text>
+      <text id="2">${message}</text>
+    </binding>
+  </visual>
+</toast>
+"@
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($template)
+$toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($APP_ID).Show($toast)
+`;
+        execSync(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, { stdio: 'ignore', timeout: 2000 });
+      } catch {
+        // Fallback to nothing if toast fails (at least we have the bell)
+      }
     }
   } catch {
     // Silently ignore — notification may not be available
   }
 }
 
-async function doRun(options: RunOptions, taskNames: string[] | undefined, spinner: ReturnType<typeof ora>, notify = true): Promise<{ runner: ContainerRunner; exitCode: number; result?: RunState }> {
-  const runner = new ContainerRunner(options);
+async function doRun(options: RunOptions, taskNames: string[] | undefined, spinner: ReturnType<typeof ora>, notify = true, runner?: ContainerRunner): Promise<{ runner: ContainerRunner; exitCode: number; result?: RunState }> {
+  if (!runner) runner = new ContainerRunner(options);
 
   runner.on('log', (msg: string) => {
     spinner.info(msg);
@@ -147,6 +179,7 @@ export async function runCommand(taskName: string | undefined, opts: RunCommandO
     dryRun: opts.dryRun || false,
     resume: opts.resume || false,
     watch: opts.watch || false,
+    rebuild: opts.rebuild || false,
     timeout: opts.timeout,
   };
 
@@ -196,8 +229,9 @@ export async function runCommand(taskName: string | undefined, opts: RunCommandO
   // In watch mode, always run all tasks
   const runTaskNames = options.watch ? undefined : (opts.all ? undefined : taskNames);
 
-  const { runner, exitCode } = await doRun(options, runTaskNames, spinner, opts.notify !== false);
-  currentRunner = runner;
+  // Create runner before doRun so SIGINT can reach it during execution
+  currentRunner = new ContainerRunner(options);
+  const { exitCode } = await doRun(options, runTaskNames, spinner, opts.notify !== false, currentRunner);
 
   if (!options.watch) {
     if (exitCode !== 0) process.exit(exitCode);
@@ -234,8 +268,8 @@ export async function runCommand(taskName: string | undefined, opts: RunCommandO
       console.log(chalk.yellow(`\n♻ Tasks changed (${filename}) — restarting run...\n`));
       spinner.stop();
       await currentRunner?.shutdown();
-      const { runner: newRunner } = await doRun(options, undefined, spinner, opts.notify !== false);
-      currentRunner = newRunner;
+      currentRunner = new ContainerRunner(options);
+      await doRun(options, undefined, spinner, opts.notify !== false, currentRunner);
       restarting = false;
     }, 500);
   });

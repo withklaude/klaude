@@ -22,6 +22,7 @@ RUN useradd -m -s /bin/bash klaude \
     && echo "klaude ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 COPY claude-wrapper.sh /usr/local/bin/claude-wrapper
+COPY agent.md /agent.md
 RUN chmod +x /usr/local/bin/claude-wrapper
 
 WORKDIR /workspace

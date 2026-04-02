@@ -176,6 +176,7 @@ program
   .option('--watch', 'Restart automatically when tasks change')
   .option('--no-notify', 'Disable completion notifications')
   .option('--timeout <minutes>', 'Maximum minutes per task', parseInt)
+  .option('--rebuild', 'Force rebuild of Docker image before running')
   .action(runCommand);
 
 // ─── status ──────────────────────────────────────────────────────

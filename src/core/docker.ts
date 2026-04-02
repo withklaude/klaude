@@ -56,18 +56,18 @@ export class DockerManager extends EventEmitter {
       path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')),
       '..', 'templates', 'Dockerfile',
     );
-    const wrapperPath = path.join(
-      path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')),
-      '..', 'templates', 'claude-wrapper.sh',
-    );
+    const templatesDir = path.dirname(dockerfilePath);
+    const wrapperPath = path.join(templatesDir, 'claude-wrapper.sh');
+    const agentMdPath = path.join(templatesDir, 'agent.md');
 
     // Create a temp build context
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'klaude-build-'));
     fs.copyFileSync(dockerfilePath, path.join(tmpDir, 'Dockerfile'));
     fs.copyFileSync(wrapperPath, path.join(tmpDir, 'claude-wrapper.sh'));
+    fs.copyFileSync(agentMdPath, path.join(tmpDir, 'agent.md'));
 
     const stream = await this.docker.buildImage(
-      { context: tmpDir, src: ['Dockerfile', 'claude-wrapper.sh'] },
+      { context: tmpDir, src: ['Dockerfile', 'claude-wrapper.sh', 'agent.md'] },
       { t: imageName },
     );
 

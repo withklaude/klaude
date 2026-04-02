@@ -35,6 +35,17 @@ klaude plan spec.md
 
 Generates multiple tasks with priorities and dependencies from a spec file. See [Planning](planning.md).
 
+### Task suggestions
+
+Let Claude suggest what to work on next:
+
+```bash
+klaude task suggest              # analyze codebase and suggest tasks
+klaude task suggest "dark mode"  # suggest tasks for a specific area
+```
+
+Claude reads your codebase, identifies gaps, and suggests the next priority task. Useful when you're not sure what to build next.
+
 ## Task file format
 
 Tasks live in `.klaude/tasks/` as Markdown files with YAML frontmatter:

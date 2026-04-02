@@ -89,44 +89,32 @@ export class ContainerRunner extends EventEmitter {
       await this.configureContainer();
       await this.healthcheck();
 
+      // Determine which tasks to run (handle resume)
+      const tasksToRun: TaskState[] = [];
+
       if (this.options.resume) {
-        // Reset tasks stuck in 'running' state (from interrupted runs)
         const recovered = this.stateManager.recoverInterrupted();
         if (recovered.length > 0) {
           this.emit('log', `Recovered ${recovered.length} interrupted task(s): ${recovered.join(', ')}`);
         }
-
-        // Report what will be skipped vs re-run
-        const willSkip = this.runState.tasks.filter(t => !this.stateManager.shouldRun(t.task.name));
-        const willRun = this.runState.tasks.filter(t => this.stateManager.shouldRun(t.task.name));
-        if (willSkip.length > 0) {
-          this.emit('log', `Resuming: skipping ${willSkip.length} completed task(s), running ${willRun.length}`);
-        }
       }
 
-      // Run each task: skip completed/skipped, check deps, retry failed, run pending
       for (const taskState of this.runState.tasks) {
-        if (!this.stateManager.shouldRun(taskState.task.name)) {
+        if (this.options.resume && !this.stateManager.shouldRun(taskState.task.name)) {
           const s = this.stateManager.get(taskState.task.name);
           taskState.status = s.status === 'completed' ? 'completed' : 'failed';
           this.emit('task-skip', { task: taskState.task.name, reason: s.status });
           continue;
         }
+        tasksToRun.push(taskState);
+      }
 
-        // Check dependencies are all completed
-        const deps = taskState.task.depends_on || [];
-        const failedDep = deps.find(d => {
-          const depState = this.stateManager.get(d);
-          return depState.status !== 'completed';
-        });
-        if (failedDep) {
-          taskState.status = 'failed';
-          taskState.error = `Dependency "${failedDep}" not completed`;
-          this.stateManager.markFailed(taskState.task.name, taskState.error);
-          this.emit('task-skip', { task: taskState.task.name, reason: `dependency "${failedDep}" not completed` });
-          continue;
+      if (tasksToRun.length > 0) {
+        const skipped = this.runState.tasks.length - tasksToRun.length;
+        if (skipped > 0) {
+          this.emit('log', `Resuming: skipping ${skipped} completed task(s), running ${tasksToRun.length}`);
         }
-        await this.executeTask(taskState);
+        await this.executeAllTasks(tasksToRun);
       }
     } finally {
       await this.stopContainer();
@@ -201,6 +189,19 @@ export class ContainerRunner extends EventEmitter {
       await this.docker.exec(this.containerId!, [
         'sudo', 'chown', '-R', 'klaude:klaude', '/home/klaude/.claude',
       ]);
+
+      // Copy ~/.claude.json into container (can't bind-mount single files on Windows)
+      const claudeJsonPath = path.join(os.homedir(), '.claude.json');
+      if (fs.existsSync(claudeJsonPath)) {
+        const content = fs.readFileSync(claudeJsonPath, 'utf-8');
+        await this.docker.writeFile(this.containerId!, '/home/klaude/.claude.json', content);
+        await this.docker.exec(this.containerId!, [
+          'sudo', 'chown', 'klaude:klaude', '/home/klaude/.claude.json',
+        ]);
+        this.emit('log', `Copied .claude.json (${content.length} bytes)`);
+      } else {
+        this.emit('log', `Warning: ${claudeJsonPath} not found`);
+      }
     }
 
     this.emit('log', `Container configured (git: ${gitUser} <${gitEmail}>)`);
@@ -232,6 +233,11 @@ export class ContainerRunner extends EventEmitter {
         cmd: ['bash', '-c', 'test -n "$ANTHROPIC_API_KEY" || test -f ~/.claude.json && echo ok'],
         validate: (out) => out.trim() === 'ok',
       },
+      {
+        name: 'Claude auth works',
+        cmd: ['bash', '-c', 'claude --print --dangerously-skip-permissions "Say OK" 2>&1'],
+        validate: (out) => !out.includes('Invalid API key') && !out.includes('Authentication'),
+      },
     ];
 
     for (const check of checks) {
@@ -250,23 +256,69 @@ export class ContainerRunner extends EventEmitter {
     this.emit('log', 'Healthcheck passed.');
   }
 
-  // ─── Task Execution ─────────────────────────────────────────
+  // ─── Task Execution (single Claude session via agent.md) ────
 
-  private async executeTask(taskState: TaskState): Promise<void> {
-    const { task } = taskState;
+  /** Serialize tasks to JSON for the agent */
+  private buildTasksJson(taskStates: TaskState[]): string {
+    const tasks = taskStates.map(ts => ({
+      name: ts.task.name,
+      prompt: ts.task.prompt,
+      depends_on: ts.task.depends_on || [],
+      priority: ts.task.priority || 0,
+    }));
+
+    return JSON.stringify({ tasks }, null, 2);
+  }
+
+  /** Read agent.md template and inject project config */
+  private buildAgentMd(): string {
+    const agentMdPath = path.join(
+      path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1')),
+      '..', 'templates', 'agent.md',
+    );
+    let agentMd = fs.readFileSync(agentMdPath, 'utf-8');
+
+    // Read project agent config (.klaude/agent.yaml)
+    let agentConfig = '_No project-specific configuration._';
+    const projectDir = this.config.getProjectDir();
+    if (projectDir) {
+      const agentYamlPath = path.join(projectDir, 'agent.yaml');
+      if (fs.existsSync(agentYamlPath)) {
+        agentConfig = fs.readFileSync(agentYamlPath, 'utf-8');
+      }
+    }
+
+    agentMd = agentMd.replace('{{AGENT_CONFIG}}', agentConfig);
+
+    // Inject environment variable names
+    const env = this.config.get<Record<string, string>>('env');
+    let envVars = '_No custom environment variables configured._';
+    if (env && Object.keys(env).length > 0) {
+      envVars = Object.keys(env).map(name => `- \`$${name}\``).join('\n');
+    }
+    agentMd = agentMd.replace('{{ENV_VARS}}', envVars);
+
+    return agentMd;
+  }
+
+  /** Launch Claude once with agent.md to execute all tasks */
+  private async executeAllTasks(taskStates: TaskState[]): Promise<void> {
     const detector = new RateLimitDetector();
 
-    taskState.status = 'running';
-    taskState.started_at = new Date().toISOString();
-    taskState.container_id = this.containerId;
-    this.stateManager.markRunning(task.name, this.runState.id);
-    this.emit('task-start', task.name);
+    for (const ts of taskStates) {
+      ts.status = 'running';
+      ts.started_at = new Date().toISOString();
+      ts.container_id = this.containerId;
+      this.stateManager.markRunning(ts.task.name, this.runState.id);
+    }
+    this.emit('task-start', taskStates.map(t => t.task.name).join(', '));
 
-    const timeoutMinutes = task.settings?.timeout || this.options.timeout || 0;
+    const totalTimeoutMinutes = taskStates.reduce((sum, ts) => {
+      return sum + (ts.task.settings?.timeout || this.options.timeout || 0);
+    }, 0);
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    let timeoutReject: ((err: Error) => void) | undefined;
 
-    // Get git HEAD before task runs
+    // Capture git HEAD before
     let headBefore = '';
     try {
       const { stream: headStream } = await this.docker.exec(this.containerId!, [
@@ -276,56 +328,46 @@ export class ContainerRunner extends EventEmitter {
     } catch { /* git not initialized */ }
 
     try {
-      // Build prompt: task + env vars + roadmap instruction
-      let prompt = task.prompt;
-      const env = this.config.get<Record<string, string>>('env');
-      if (env && Object.keys(env).length > 0) {
-        const names = Object.keys(env).join(', ');
-        prompt += `\n\nEnvironment variables available: ${names}`;
-      }
+      // Write tasks.json into the container
+      const tasksJson = this.buildTasksJson(taskStates);
+      await this.docker.writeFile(this.containerId!, '/tmp/tasks.json', tasksJson);
 
+      // Write compiled agent.md (with project config injected)
+      const agentMd = this.buildAgentMd();
+      await this.docker.writeFile(this.containerId!, '/agent.md', agentMd);
 
-      // Write prompt into the container (via tar, no heredoc escaping issues)
-      await this.docker.writeFile(this.containerId!, '/tmp/task-prompt.md', prompt);
+      // Initialize empty status file
+      await this.docker.writeFile(this.containerId!, '/tmp/klaude-tasks-status.json', '{"tasks":[]}');
 
-      // Launch claude-wrapper — Claude Code does everything
+      // Launch claude-wrapper — it starts Claude with agent.md
       const { stream } = await this.docker.exec(this.containerId!, [
-        '/usr/local/bin/claude-wrapper', '/tmp/task-prompt.md',
+        '/usr/local/bin/claude-wrapper',
         this.options.overnight ? '999' : '10',
       ]);
 
-      // Stream output (demultiplexed into stdout/stderr)
+      // Stream output
       const demuxed = demuxExecStream(stream);
       const streamPromise = new Promise<void>((resolve, reject) => {
         let output = '';
 
         demuxed.on('data', ({ type: streamType, data }: { type: 'stdout' | 'stderr'; data: string }) => {
           output += data;
-
           for (const line of data.split('\n').filter((l: string) => l.trim())) {
             const parsed = detector.parseLogLine(line);
-            // For rate_limit/network_error keep the detector type; otherwise use the stream type
             const emitType = (parsed.type === 'rate_limit' || parsed.type === 'network_error')
-              ? parsed.type
-              : streamType;
-            this.emit('task-output', { task: task.name, type: emitType, raw: parsed.raw });
+              ? parsed.type : streamType;
+            this.emit('task-output', { task: '__all__', type: emitType, raw: parsed.raw });
 
             if (parsed.type === 'rate_limit') {
-              taskState.status = 'waiting';
-              taskState.rate_limits_hit++;
-              this.emit('rate-limit', { task: task.name, count: taskState.rate_limits_hit });
+              this.emit('rate-limit', { task: '__all__', count: detector.getStats().rateLimitsHit });
             } else if (parsed.type === 'network_error') {
-              taskState.status = 'waiting';
-              taskState.network_errors++;
-              this.emit('network-error', { task: task.name, count: taskState.network_errors });
-            } else if (taskState.status === 'waiting') {
-              taskState.status = 'running';
+              this.emit('network-error', { task: '__all__', count: detector.getStats().networkErrors });
             }
           }
         });
 
         demuxed.on('end', () => {
-          const logPath = path.join(this.getRunDir(), `${task.name}.log`);
+          const logPath = path.join(this.getRunDir(), 'session.log');
           fs.writeFileSync(logPath, output, 'utf-8');
           resolve();
         });
@@ -333,54 +375,37 @@ export class ContainerRunner extends EventEmitter {
         demuxed.on('error', reject);
       });
 
-      const timeoutPromise = timeoutMinutes > 0
+      const timeoutPromise = totalTimeoutMinutes > 0
         ? new Promise<void>((_resolve, reject) => {
-            timeoutReject = reject;
             timeoutHandle = setTimeout(async () => {
-              taskState.status = 'failed';
-              taskState.timed_out = true;
-              taskState.error = `Task timed out after ${timeoutMinutes} minutes`;
               try {
                 await this.docker.exec(this.containerId!, ['pkill', '-f', 'claude']);
-              } catch { /* ignore — process may already be gone */ }
-              this.emit('task-timeout', { task: task.name, timeout: timeoutMinutes });
-              reject(new Error(taskState.error));
-            }, timeoutMinutes * 60 * 1000);
+              } catch { /* ignore */ }
+              this.emit('task-timeout', { task: '__all__', timeout: totalTimeoutMinutes });
+              reject(new Error(`Session timed out after ${totalTimeoutMinutes} minutes`));
+            }, totalTimeoutMinutes * 60 * 1000);
           })
         : null;
 
       await (timeoutPromise ? Promise.race([streamPromise, timeoutPromise]) : streamPromise);
 
-      // Check final status
-      const statusJson = await this.docker.readFile(this.containerId!, '/tmp/klaude-status.json');
-      let finalResolved = false;
-      if (statusJson) {
-        const containerStatus = detector.parseContainerStatus(statusJson);
-        if (containerStatus?.status === 'completed') {
-          taskState.status = 'completed';
-          finalResolved = true;
-        } else if (containerStatus?.status === 'failed') {
-          taskState.status = 'failed';
-          taskState.error = containerStatus.message;
-          finalResolved = true;
-        }
-      }
-
-      if (!finalResolved && taskState.status !== 'completed' && taskState.status !== 'failed') {
-        taskState.status = 'completed';
-      }
+      // Read task results written by Claude
+      await this.resolveTaskStatuses(taskStates);
 
     } catch (err) {
-      if (!taskState.timed_out) {
-        taskState.status = 'failed';
-        taskState.error = (err as Error).message;
-        this.emit('task-error', { task: task.name, error: taskState.error });
+      // On crash/timeout, still try to read partial results
+      await this.resolveTaskStatuses(taskStates);
+      for (const ts of taskStates) {
+        if (ts.status === 'running' || ts.status === 'waiting') {
+          ts.status = 'failed';
+          ts.error = ts.error || (err as Error).message;
+          this.emit('task-error', { task: ts.task.name, error: ts.error });
+        }
       }
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
-      taskState.completed_at = new Date().toISOString();
 
-      // Capture git diff for this task
+      // Capture git diff for the session
       try {
         const { stream: diffStream } = await this.docker.exec(this.containerId!, [
           'git', '-C', '/workspace', 'diff', 'HEAD',
@@ -395,27 +420,54 @@ export class ContainerRunner extends EventEmitter {
           commitLog = await this.streamToString(logStream);
         }
 
-        const diffPath = path.join(this.getRunDir(), `${task.name}.diff`);
-        const diffContent = `# Git changes for task: ${task.name}\n\n## Commits\n${commitLog}\n\n## Diff\n${diff}`;
+        const diffPath = path.join(this.getRunDir(), 'session.diff');
+        const diffContent = `# Git changes for session\n\n## Commits\n${commitLog}\n\n## Uncommitted diff\n${diff}`;
         fs.writeFileSync(diffPath, diffContent, 'utf-8');
       } catch { /* ignore git errors */ }
 
-      // Persist task state
-      if (taskState.status === 'completed') {
-        this.stateManager.markCompleted(task.name);
-      } else if (taskState.status === 'failed') {
-        this.stateManager.markFailed(task.name, taskState.error);
+      // Finalize all task states
+      for (const ts of taskStates) {
+        ts.completed_at = ts.completed_at || new Date().toISOString();
+        if (ts.status === 'completed') {
+          this.stateManager.markCompleted(ts.task.name);
+        } else {
+          if (ts.status === 'running') ts.status = 'failed';
+          this.stateManager.markFailed(ts.task.name, ts.error);
+        }
       }
 
       const stats = detector.getStats();
       this.emit('task-done', {
-        task: task.name,
-        status: taskState.status,
+        task: '__all__',
+        status: taskStates.every(t => t.status === 'completed') ? 'completed' : 'failed',
         rateLimits: stats.rateLimitsHit,
         networkErrors: stats.networkErrors,
         waitTime: stats.totalWaitTimeMs,
       });
     }
+  }
+
+  /** Read /tmp/klaude-tasks-status.json written by Claude */
+  private async resolveTaskStatuses(taskStates: TaskState[]): Promise<void> {
+    const tasksStatusJson = await this.docker.readFile(this.containerId!, '/tmp/klaude-tasks-status.json');
+    if (!tasksStatusJson) return;
+
+    try {
+      const parsed = JSON.parse(tasksStatusJson);
+      if (!parsed.tasks || !Array.isArray(parsed.tasks)) return;
+
+      for (const result of parsed.tasks) {
+        const ts = taskStates.find(t => t.task.name === result.name);
+        if (!ts) continue;
+        if (result.status === 'completed') {
+          ts.status = 'completed';
+        } else {
+          ts.status = 'failed';
+          ts.error = result.summary || `Task ${result.status}`;
+        }
+        ts.completed_at = new Date().toISOString();
+      }
+    } catch { /* ignore JSON parse errors */ }
   }
 
   private async streamToString(stream: NodeJS.ReadableStream): Promise<string> {
@@ -457,9 +509,13 @@ export class ContainerRunner extends EventEmitter {
     const ageHours = await this.docker.imageAgeHours(imageName);
     const maxAge = this.config.get<number>('docker.rebuild_after_hours') ?? 24;
 
-    if (ageHours !== null && ageHours < maxAge) {
+    if (!this.options.rebuild && ageHours !== null && ageHours < maxAge) {
       this.emit('log', `Docker image "${imageName}" found (${Math.round(ageHours)}h old).`);
       return;
+    }
+
+    if (this.options.rebuild) {
+      this.emit('log', `Rebuilding Docker image "${imageName}" (--rebuild)...`);
     }
 
     // Lock to prevent concurrent rebuilds across projects

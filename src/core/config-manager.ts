@@ -83,16 +83,13 @@ export class ConfigManager {
     }
 
     // 3. Claude Code config on host (~/.claude/)
+    // Only return actual API keys (sk-ant-api...), NOT OAuth tokens (sk-ant-oat...).
+    // OAuth tokens are handled by Claude Code internally via mounted ~/.claude/ dir.
     const claudeCredentialsPath = path.join(os.homedir(), '.claude', '.credentials.json');
     if (fs.existsSync(claudeCredentialsPath)) {
       try {
         const raw = fs.readFileSync(claudeCredentialsPath, 'utf-8');
         const data = JSON.parse(raw);
-        // Claude Code Max uses OAuth tokens
-        if (data.claudeAiOauth?.accessToken) {
-          return data.claudeAiOauth.accessToken;
-        }
-        // Fallback for direct API key formats
         if (data.apiKey) return data.apiKey;
         if (data.api_key) return data.api_key;
       } catch {

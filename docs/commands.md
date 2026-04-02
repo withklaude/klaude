@@ -34,6 +34,7 @@ klaude task example            # create an example task
 klaude task reset [name]       # reset to pending
 klaude task reset --all        # reset all tasks
 klaude task skip [name]        # mark as skipped
+klaude task suggest [description] # suggest next task to work on
 ```
 
 ## `klaude run`
@@ -45,6 +46,9 @@ klaude run --overnight         # unlimited retries
 klaude run --dry-run           # preview
 klaude run --resume            # resume interrupted run
 klaude run --watch             # restart on task file changes
+klaude run --timeout <minutes> # all tasks max time (overrides per-task timeout)
+klaude run --rebuild           # force rebuild Docker image before running
+klaude run --no-notify         # disable completion notifications
 ```
 
 ## `klaude status`
@@ -61,6 +65,7 @@ klaude logs <task>             # logs from last run
 klaude logs <task> --follow    # tail in real-time
 klaude logs <task> --lines 50  # last 50 lines
 klaude logs <task> --run <id>  # from a specific run
+klaude logs <task> --diff      # show git diff of changes from that task
 ```
 
 ## `klaude stop`
