@@ -32,7 +32,7 @@ function getAgentPromptPath(): string {
 /** Call Claude Code CLI with the task agent system prompt and full codebase access */
 async function askAgent(userMessage: string): Promise<string> {
   const agentPath = getAgentPromptPath();
-  const args = ['-p', '--dangerously-skip-permissions', userMessage];
+  const args = ['-p', '--dangerously-skip-permissions'];
 
   if (fs.existsSync(agentPath)) {
     args.push('--system-prompt-file', agentPath);
@@ -43,6 +43,10 @@ async function askAgent(userMessage: string): Promise<string> {
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    // Write prompt via stdin to avoid OS argument length limits
+    child.stdin.write(userMessage);
+    child.stdin.end();
 
     let stdout = '';
 
@@ -349,6 +353,140 @@ export async function taskShowCommand(name: string): Promise<void> {
   console.log(chalk.bold('\n  ── Prompt ──────────────────────────'));
   console.log(task.prompt.split('\n').map(l => `  ${l}`).join('\n'));
   console.log('');
+}
+
+// ─── task suggest ────────────────────────────────────────────
+
+export async function taskSuggestCommand(description?: string): Promise<void> {
+  const config = new ConfigManager();
+  const projectDir = config.getProjectDir();
+  const projectRoot = config.getProjectRoot();
+
+  if (!projectDir || !projectRoot) {
+    console.error(chalk.red('Not inside a klaude project. Run "klaude init" first.'));
+    process.exit(1);
+  }
+
+  const loader = getTaskLoader();
+  const allTasks = loader.loadAll();
+  const state = new StateManager(projectDir);
+
+  // Build a summary of existing tasks and their states
+  let taskSummary = '';
+  if (allTasks.length > 0) {
+    taskSummary = '\n\nExisting tasks and their status:\n';
+    for (const task of allTasks) {
+      const s = state.get(task.name);
+      const promptLine = task.prompt.split('\n').find(l => l.trim())?.slice(0, 80) || '';
+      taskSummary += `- ${task.name} [${s.status}] P${task.priority ?? '?'}: ${promptLine}\n`;
+    }
+  } else {
+    taskSummary = '\n\nNo tasks exist yet in this project.';
+  }
+
+  // Gather project context
+  let context = '';
+  try {
+    const files = fs.readdirSync(projectRoot).filter(f => !f.startsWith('.')).slice(0, 30);
+    context = `\nProject root files: ${files.join(', ')}`;
+    const pkgPath = path.join(projectRoot, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      context += `\npackage.json: name=${pkg.name || '?'}, scripts=${Object.keys(pkg.scripts || {}).join(',')}`;
+      if (pkg.dependencies) context += `, deps=${Object.keys(pkg.dependencies).slice(0, 15).join(',')}`;
+      if (pkg.devDependencies) context += `, devDeps=${Object.keys(pkg.devDependencies).slice(0, 10).join(',')}`;
+    }
+  } catch { /* ignore */ }
+
+  let prompt: string;
+
+  if (description) {
+    // Mode: user gave a description, Claude analyzes the codebase and generates a task for it
+    console.log(chalk.bold(`\n🔍 Analyzing codebase for: ${chalk.cyan(description)}\n`));
+    prompt =
+      `The user wants to implement something described as: "${description}"\n\n` +
+      `Project context:${context}${taskSummary}\n\n` +
+      `Read the project source files to understand the codebase — architecture, patterns, conventions, existing code.\n\n` +
+      `Then suggest the best way to implement this. Your response should include:\n` +
+      `1. **Analysis**: What existing code is relevant, what patterns to follow\n` +
+      `2. **Approach**: The recommended implementation strategy\n` +
+      `3. **Task file**: A ready-to-use task file (markdown with YAML frontmatter) that Claude Code can execute, ` +
+      `referencing specific files, functions, and patterns found in the codebase\n\n` +
+      `Format the task file inside a fenced code block marked \`\`\`task so it can be extracted.\n` +
+      `The task should be specific, actionable, and grounded in the actual codebase.`;
+  } else {
+    // Mode: no description — suggest what to do next
+    console.log(chalk.bold('\n🔍 Analyzing project to suggest next task...\n'));
+    prompt =
+      `Analyze this project and suggest what task to work on next.\n\n` +
+      `Project context:${context}${taskSummary}\n\n` +
+      `Read the project source files to understand the codebase — its current state, what's implemented, what's missing, ` +
+      `what could be improved.\n\n` +
+      `Consider:\n` +
+      `- Tasks that are pending or failed (should be retried/fixed first)\n` +
+      `- Missing tests, documentation gaps, or TODOs in the code\n` +
+      `- Code quality improvements, missing error handling\n` +
+      `- New features that would logically come next given the project's direction\n` +
+      `- Dependencies between tasks\n\n` +
+      `Suggest 1-3 tasks, ranked by priority. For each:\n` +
+      `1. **Why**: Why this should be done next\n` +
+      `2. **What**: Concrete description\n` +
+      `3. **Task file**: A ready-to-use task file (markdown with YAML frontmatter)\n\n` +
+      `Format each task file inside a fenced code block marked \`\`\`task so they can be extracted.`;
+  }
+
+  try {
+    const result = await askAgent(prompt);
+
+    // Extract task blocks
+    const taskBlocks = extractTaskBlocks(result);
+
+    if (taskBlocks.length === 0) {
+      console.log(chalk.dim('\n  No extractable task files found in the suggestion.'));
+      return;
+    }
+
+    // Offer to save each task
+    for (const block of taskBlocks) {
+      showPreview(block);
+
+      const action = await select({
+        message: 'Save this task?',
+        choices: [
+          { name: 'Yes, save it', value: 'save' },
+          { name: 'Refine with Claude first', value: 'refine' },
+          { name: 'Skip', value: 'skip' },
+        ],
+      });
+
+      if (action === 'save') {
+        const tasksDir = getTasksDir();
+        const filePath = saveTask(tasksDir, block);
+        console.log(chalk.green(`✓ Task saved: ${path.relative(process.cwd(), filePath)}`));
+      } else if (action === 'refine') {
+        const tasksDir = getTasksDir();
+        const filePath = saveTask(tasksDir, block);
+        console.log(chalk.green(`✓ Task saved: ${path.relative(process.cwd(), filePath)}`));
+        await refineLoop(filePath);
+      }
+    }
+  } catch (err) {
+    console.error(chalk.red('Failed to get suggestions.'));
+    console.error(chalk.dim((err as Error).message));
+    process.exit(1);
+  }
+}
+
+/** Extract task content from ```task fenced blocks */
+function extractTaskBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const regex = /```task\s*\n([\s\S]*?)```/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const content = match[1].trim();
+    if (content) blocks.push(content);
+  }
+  return blocks;
 }
 
 // ─── task example ─────────────────────────────────────────────

@@ -35,6 +35,8 @@ klaude task example            # Create an example task for reference
 klaude task reset [name]       # Reset task to pending (runs again)
 klaude task reset --all        # Reset all tasks
 klaude task skip [name]        # Mark task as skipped (won't run)
+klaude task suggest            # Suggest next task based on project state
+klaude task suggest "<desc>"   # Analyze codebase for the best way to implement something
 ```
 
 ### Planning from specs
@@ -251,6 +253,12 @@ klaude run --all              # only pending/failed tasks run
 ```bash
 klaude task reset --all
 klaude run --overnight
+```
+
+**Not sure what to do next:**
+```bash
+klaude task suggest              # Claude analyzes project and suggests tasks
+klaude task suggest "add caching" # Or ask about a specific feature
 ```
 
 **Cleanup:**

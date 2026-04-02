@@ -144,7 +144,13 @@ export async function planCommand(specFile?: string, options: { yes?: boolean; a
 
   // Call the plan agent with full permissions so it can read the codebase
   const agentPath = getTemplatePath('plan-agent.md');
-  const args = ['-p', '--dangerously-skip-permissions',
+  const args = ['-p', '--dangerously-skip-permissions'];
+
+  if (fs.existsSync(agentPath)) {
+    args.push('--system-prompt-file', agentPath);
+  }
+
+  const promptText =
     `Project root: ${projectRoot}\n\n` +
     `Here is the specification/description of work to be done:\n\n` +
     `---\n${specContent}\n---\n\n` +
@@ -159,8 +165,7 @@ export async function planCommand(specFile?: string, options: { yes?: boolean; a
     `4. Be exhaustive — each task should have enough context that Claude Code can implement it independently.\n\n` +
     (options.append ? `Only generate NEW tasks that don't overlap with existing ones. This is an append operation.\n\n` : '') +
     (options.fromIssues ? `Each task should reference the GitHub issue number it addresses. Include 'Closes #N' in the task prompt so Claude Code will reference the issue.\n\n` : '') +
-    `Output ONLY a JSON array as specified.`,
-  ];
+    `Output ONLY a JSON array as specified.`;
 
   let rawOutput: string;
   try {
@@ -169,6 +174,10 @@ export async function planCommand(specFile?: string, options: { yes?: boolean; a
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+
+      // Write prompt via stdin to avoid OS argument length limits
+      child.stdin.write(promptText);
+      child.stdin.end();
 
       let stdout = '';
       let stderr = '';

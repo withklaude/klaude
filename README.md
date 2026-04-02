@@ -102,6 +102,18 @@ Claude reads the existing source code to avoid generating tasks for features tha
 | `task reset [name]` | Reset task to pending |
 | `task reset --all` | Reset all tasks |
 | `task skip [name]` | Mark task as skipped |
+| `task suggest [desc]` | Suggest next task or analyze codebase for a description |
+
+### `klaude task suggest`
+
+Ask Claude to analyze the codebase and suggest what to work on next.
+
+```bash
+klaude task suggest                       # suggest 1-3 tasks based on project state
+klaude task suggest "add caching"         # analyze codebase for the best way to implement
+```
+
+Claude reads the source code, checks existing tasks and their status, then generates ready-to-use task files you can save, refine, or skip.
 
 ### `klaude run`
 

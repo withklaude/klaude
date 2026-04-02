@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { initCommand } from './commands/init.js';
 import { configSetCommand, configGetCommand, configListCommand } from './commands/config.js';
-import { taskNewCommand, taskListCommand, taskShowCommand, taskValidateCommand, taskGenerateCommand, taskEditCommand, taskDeleteCommand, taskExampleCommand, taskResetCommand, taskSkipCommand } from './commands/task.js';
+import { taskNewCommand, taskListCommand, taskShowCommand, taskValidateCommand, taskGenerateCommand, taskEditCommand, taskDeleteCommand, taskExampleCommand, taskResetCommand, taskSkipCommand, taskSuggestCommand } from './commands/task.js';
 import { planCommand } from './commands/plan.js';
 import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
@@ -139,6 +139,11 @@ taskCmd
   .command('skip [name]')
   .description('Mark a task as skipped (won\'t run)')
   .action(taskSkipCommand);
+
+taskCmd
+  .command('suggest [description]')
+  .description('Suggest next task to work on, or analyze codebase for a given description')
+  .action(taskSuggestCommand);
 
 // ─── plan ───────────────────────────────────────────────────────
 program
