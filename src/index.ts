@@ -17,6 +17,8 @@ import { cleanCommand } from './commands/clean.js';
 import { logsCommand } from './commands/logs.js';
 
 // ─── Auto-update ────────────────────────────────────────────────
+let updateScheduled = false;
+
 async function checkForUpdate(): Promise<void> {
   try {
     const require = createRequire(import.meta.url);
@@ -34,9 +36,9 @@ async function checkForUpdate(): Promise<void> {
       const [bMaj, bMin, bPat] = latest.split('.').map(Number);
       const npmIsNewer = bMaj > aMaj || (bMaj === aMaj && bMin > aMin) || (bMaj === aMaj && bMin === aMin && bPat > aPat);
       if (npmIsNewer) {
-        console.log(`\x1b[33mUpdating klaude ${currentVersion} → ${latest}...\x1b[0m`);
-
-        try {
+        console.log(`\x1b[33mA new version is available. It will update when the process exits.\x1b[0m`);
+        if (!updateScheduled) {
+          updateScheduled = true;
           const cliArgs = process.argv.slice(2);
           const updaterScript = `
 import { execSync, spawnSync } from 'node:child_process';
@@ -71,17 +73,16 @@ try {
           const updaterPath = path.join(os.tmpdir(), `klaude-updater-${Date.now()}.mjs`);
           fs.writeFileSync(updaterPath, updaterScript, 'utf-8');
 
-          const child = spawn(process.execPath, [updaterPath, JSON.stringify(cliArgs), updaterPath], {
-            detached: true,
-            stdio: 'inherit',
-            windowsHide: true,
+          process.once('exit', () => {
+            const child = spawn(process.execPath, [updaterPath, JSON.stringify(cliArgs), updaterPath], {
+              detached: true,
+              stdio: 'ignore',
+              windowsHide: true,
+            });
+            child.unref();
           });
 
-          child.unref();
-          console.log(`\x1b[32m✓ Update scheduled; continuing in the same console after restart\x1b[0m`);
-          process.exit(0);
-        } catch {
-          console.log(`\x1b[33m⚠ Update failed, continuing with current version\x1b[0m`);
+          console.log(`\x1b[32m✓ Update will run when the current process exits\x1b[0m`);
         }
       }
     }

@@ -1,6 +1,6 @@
 {
   "name": "klaude-tool",
-  "version": "0.3.10",
+  "version": "0.3.15",
   "description": "CLI to orchestrate Claude Code tasks in Docker containers — plan by day, run overnight",
   "type": "module",
   "bin": {
