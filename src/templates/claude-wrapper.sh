@@ -144,6 +144,21 @@ while [[ $attempt -lt $MAX_RETRIES ]]; do
   if [[ $EXIT_CODE -eq 0 ]]; then
     log "Session completed successfully."
     write_status "completed" "Done"
+
+    # Fallback: if Claude didn't write the tasks status file, create it now
+    # marking all tasks as completed (session exited 0 = success).
+    TASKS_STATUS="/tmp/klaude-tasks-status.json"
+    if [[ ! -f "$TASKS_STATUS" ]] && [[ -f /tmp/tasks.json ]]; then
+      # Build status entries from tasks.json
+      task_entries=$(python3 -c "
+import json, sys
+with open('/tmp/tasks.json') as f:
+    tasks = json.load(f)
+entries = [{'name': t['name'], 'status': 'completed', 'summary': 'Completed (status inferred from successful session exit)'} for t in tasks]
+print(json.dumps({'tasks': entries}, indent=2))
+" 2>/dev/null) && echo "$task_entries" > "$TASKS_STATUS" || true
+    fi
+
     echo "$OUTPUT"
     exit 0
   fi
