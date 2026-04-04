@@ -100,6 +100,24 @@ export class ConfigManager {
     return undefined;
   }
 
+  /** Check if Claude OAuth token exists (Claude Pro/Max subscription) */
+  detectClaudeOAuth(): { found: boolean; subscriptionType?: string } {
+    const claudeCredentialsPath = path.join(os.homedir(), '.claude', '.credentials.json');
+    if (fs.existsSync(claudeCredentialsPath)) {
+      try {
+        const raw = fs.readFileSync(claudeCredentialsPath, 'utf-8');
+        const data = JSON.parse(raw);
+        const oauth = data.claudeAiOauth;
+        if (oauth?.accessToken?.startsWith('sk-ant-oat')) {
+          return { found: true, subscriptionType: oauth.subscriptionType };
+        }
+      } catch {
+        // skip unreadable
+      }
+    }
+    return { found: false };
+  }
+
   /** Check if Claude Code auth directory exists (for mounting into container) */
   getClaudeConfigDir(): string | undefined {
     const claudeDir = path.join(os.homedir(), '.claude');

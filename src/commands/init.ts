@@ -42,13 +42,20 @@ export async function initCommand(): Promise<void> {
   if (apiKey) {
     console.log(chalk.green('✓ API key detected from host (Claude Code / env)'));
   } else {
-    console.log(chalk.yellow('⚠ No Anthropic API key found.'));
-    const setKey = await confirm({ message: 'Set API key now?', default: true });
-    if (setKey) {
-      const key = await input({ message: 'Anthropic API key:' });
-      if (key.trim()) {
-        config.setGlobal('anthropic.api_key', key.trim());
-        console.log(chalk.green('✓ API key saved to global config'));
+    const oauth = config.detectClaudeOAuth();
+    if (oauth.found) {
+      const sub = oauth.subscriptionType ? ` (${oauth.subscriptionType})` : '';
+      console.log(chalk.green(`✓ Claude OAuth token detected${sub} — no API key needed`));
+      console.log(chalk.dim('  The ~/.claude/ directory will be mounted in the container.'));
+    } else {
+      console.log(chalk.yellow('⚠ No Anthropic API key or Claude OAuth token found.'));
+      const setKey = await confirm({ message: 'Set API key now?', default: true });
+      if (setKey) {
+        const key = await input({ message: 'Anthropic API key:' });
+        if (key.trim()) {
+          config.setGlobal('anthropic.api_key', key.trim());
+          console.log(chalk.green('✓ API key saved to global config'));
+        }
       }
     }
   }
