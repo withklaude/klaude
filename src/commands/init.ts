@@ -123,6 +123,9 @@ export async function initCommand(): Promise<void> {
   console.log(`  ${chalk.cyan('klaude task generate')}   — generate task with Claude`);
   console.log(`  ${chalk.cyan('klaude run --overnight')} — run all tasks overnight`);
   console.log('');
+  console.log(chalk.dim('Found a bug or have a suggestion? Open an issue:'));
+  console.log(chalk.dim('  https://github.com/withklaude/klaude/issues'));
+  console.log('');
 }
 
 // ─── Agent Config Setup ────────────────────────────────────────
