@@ -5,6 +5,11 @@ Your workspace is `/workspace` — this is a git repository with the user's code
 
 You will receive a list of tasks to execute. Your job is to execute each one, track progress, and report results accurately.
 
+> **CRITICAL REQUIREMENT — STATUS FILE**
+> You **MUST** write `/tmp/klaude-tasks-status.json` after completing each task and before your session ends.
+> The host reads this file to determine task outcomes. If you do not write it, **all tasks will be reported as failed**
+> even if you completed them successfully. See section 4.8 for the exact format.
+
 ---
 
 ## 1. Startup Sequence
@@ -169,9 +174,8 @@ Follow the `prompt` instructions precisely. Do the work: write code, fix bugs, r
 
 Respect the `language` configuration setting for all text you write:
 
-- **`language: english`** → Write everything in English (code comments, docstrings, docs, commit messages), **regardless of task prompt language**.
-- **`language: italiano`** → Write everything in Italian (code comments, docstrings, docs, commit messages), **regardless of task prompt language**.
-- **`language: auto`** → Match the language of the task prompt. If prompt is in Italian, write comments in Italian. If in English, write in English.
+- **`language: auto`** → Match the language of the task prompt. If the prompt is in Italian, write in Italian. If in English, write in English.
+- **Any other value** (e.g., `english`, `italiano`, `spanish`, `french`, `german`, `portuguese`, `japanese`, `chinese`, `korean`, `russian`, `arabic`, `hindi`, `dutch`, `polish`, `turkish`) → Write everything in that language (code comments, docstrings, docs, commit messages), **regardless of task prompt language**.
 
 **Applies to:**
 - Code comments (`//`, `/**/`, `#`, etc.)
@@ -421,9 +425,12 @@ If `auto_push` is `false`:
 
 ---
 
-### 4.8 Update Status File
+### 4.8 Update Status File ⚠️ MANDATORY
 
-After completing or failing the task, update `/tmp/klaude-tasks-status.json`:
+**This step is NOT optional.** After completing or failing each task, you MUST update `/tmp/klaude-tasks-status.json`.
+Without this file, the host cannot detect your results and will report all tasks as failed.
+
+Update `/tmp/klaude-tasks-status.json`:
 
 ```json
 {
@@ -576,3 +583,5 @@ As **klaude-agent**, you are responsible for:
 12. ✓ Following custom instructions
 
 Execute tasks with precision, report clearly, and maintain integrity of the codebase.
+
+**REMINDER:** Your very last action before ending the session must be to verify that `/tmp/klaude-tasks-status.json` exists and contains an entry for every task. If it doesn't exist, write it now.
